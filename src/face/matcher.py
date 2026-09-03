@@ -19,7 +19,7 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
         bp[: b.shape[0]] = b
         a, b = ap, bp
     # Embeddings are L2-normalised so dot == cosine
-    denom = (np.linalg.norm(a) * np.linalg.norm(b))
+    denom = np.linalg.norm(a) * np.linalg.norm(b)
     if denom < 1e-9:
         return 0.0
     return float(np.dot(a, b) / denom)

@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
 class SearchResult:
     """One candidate discovered via visual/web search."""
+
     title: str
-    url: str                          # page URL (canonical)
-    source: str                       # platform / domain, e.g. "instagram.com"
-    image_url: Optional[str] = None   # direct image CDN URL
-    thumbnail_url: Optional[str] = None
-    page_url: Optional[str] = None    # alias for url
+    url: str  # page URL (canonical)
+    source: str  # platform / domain, e.g. "instagram.com"
+    image_url: str | None = None  # direct image CDN URL
+    thumbnail_url: str | None = None
+    page_url: str | None = None  # alias for url
     metadata: dict = field(default_factory=dict)
 
     def __post_init__(self):

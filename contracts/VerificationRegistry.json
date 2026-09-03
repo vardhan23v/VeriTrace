@@ -1,0 +1,127 @@
+{
+  "contractName": "VerificationRegistry",
+  "solc": "0.8.20",
+  "abi": [
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "sender",
+          "type": "address"
+        }
+      ],
+      "name": "RecordStored",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "authors",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "exists",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "",
+          "type": "bytes32"
+        }
+      ],
+      "name": "records",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "storeRecord",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "bytes32",
+          "name": "dataHash",
+          "type": "bytes32"
+        }
+      ],
+      "name": "verifyRecord",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "exists",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint256",
+          "name": "timestamp",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608060405234801561000f575f80fd5b506102a88061001d5f395ff3fe608060405234801561000f575f80fd5b5060043610610055575f3560e01c806301e647251461005957806338a699a41461008b5780634d408bcf146100bc578063671c0e5a146100f5578063d81aa1981461010a575b5f80fd5b61007861006736600461025b565b5f6020819052908152604090205481565b6040519081526020015b60405180910390f35b6100ac61009936600461025b565b5f90815260208190526040902054151590565b6040519015158152602001610082565b6100de6100ca36600461025b565b5f9081526020819052604090205480151591565b604080519215158352602083019190915201610082565b61010861010336600461025b565b61014a565b005b61013261011836600461025b565b60016020525f90815260409020546001600160a01b031681565b6040516001600160a01b039091168152602001610082565b8061019c5760405162461bcd60e51b815260206004820152601760248201527f5665726954726163653a20696e76616c6964206861736800000000000000000060448201526064015b60405180910390fd5b5f81815260208190526040902054156101f75760405162461bcd60e51b815260206004820152601960248201527f5665726954726163653a20616c72656164792073746f726564000000000000006044820152606401610193565b5f818152602081815260408083204290819055600183529281902080546001600160a01b0319163390811790915590519283529183917f074b537657b4183ce985bbc7d4e0115e6c7bc8c10b91e73c94605a00a28aaba3910160405180910390a350565b5f6020828403121561026b575f80fd5b503591905056fea264697066735822122056a459fac0668ede9cb92f0c48a868a98c26ebc369e1ab4e2822e79bfb229c0d64736f6c63430008140033",
+  "source_mtime": 1788403893.4004483
+}

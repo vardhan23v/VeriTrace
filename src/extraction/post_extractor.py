@@ -7,12 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import mimetypes
 import os
 import re
-import time
 from pathlib import Path
-from typing import Optional
 from urllib.parse import urlparse
 
 import requests
@@ -21,6 +18,59 @@ from bs4 import BeautifulSoup
 from src.search.base import SearchResult
 
 logger = logging.getLogger(__name__)
+
+# Human-readable platform names for well-known hosts (used for display + canonical "platform").
+_PLATFORMS = {
+    "instagram.com": "Instagram",
+    "facebook.com": "Facebook",
+    "x.com": "X (Twitter)",
+    "twitter.com": "X (Twitter)",
+    "linkedin.com": "LinkedIn",
+    "reddit.com": "Reddit",
+    "pinterest.com": "Pinterest",
+    "tiktok.com": "TikTok",
+    "youtube.com": "YouTube",
+    "threads.net": "Threads",
+    "flickr.com": "Flickr",
+    "tumblr.com": "Tumblr",
+    "wikipedia.org": "Wikipedia",
+    "wikimedia.org": "Wikimedia Commons",
+    "github.com": "GitHub",
+    "medium.com": "Medium",
+    "imdb.com": "IMDb",
+    "vk.com": "VK",
+    "stackoverflow.com": "Stack Overflow",
+}
+SOCIAL_HOSTS = (
+    "instagram.com",
+    "facebook.com",
+    "x.com",
+    "twitter.com",
+    "linkedin.com",
+    "reddit.com",
+    "pinterest.com",
+    "tiktok.com",
+    "youtube.com",
+    "threads.net",
+    "flickr.com",
+    "tumblr.com",
+    "vk.com",
+)
+
+
+def platform_name(domain: str) -> str:
+    """'www.instagram.com' → 'Instagram'; unknown hosts are returned bare (e.g. 'blog.example.org')."""
+    d = (domain or "").lower().removeprefix("www.").removeprefix("m.")
+    for host, name in _PLATFORMS.items():
+        if d == host or d.endswith("." + host):
+            return name
+    return d
+
+
+def is_social(domain: str) -> bool:
+    d = (domain or "").lower()
+    return any(d == h or d.endswith("." + h) for h in SOCIAL_HOSTS)
+
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -99,7 +149,11 @@ def extract_page_metadata(url: str, timeout: int = 15) -> dict:
     Never bypasses auth/CAPTCHA; on 403/429 returns minimal metadata and logs.
     """
     # For direct image URLs (cdn), don't fetch HTML
-    if url.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif")) or "picsum.photos" in url or "wikimedia.org" in url:
+    if (
+        url.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"))
+        or "picsum.photos" in url
+        or "wikimedia.org" in url
+    ):
         # Use URL-derived metadata
         parsed = urlparse(url)
         return {
@@ -149,7 +203,12 @@ def extract_page_metadata(url: str, timeout: int = 15) -> dict:
                 break
         # published time
         published = ""
-        for key in [{"property": "article:published_time"}, {"property": "og:published_time"}, {"name": "pubdate"}, {"name": "publishdate"}]:
+        for key in [
+            {"property": "article:published_time"},
+            {"property": "og:published_time"},
+            {"name": "pubdate"},
+            {"name": "publishdate"},
+        ]:
             tag = soup.find("meta", key)
             if tag and tag.get("content"):
                 published = tag["content"].strip()
@@ -193,10 +252,11 @@ def enrich_result(
     """Fetch page metadata for a SearchResult and return enriched dict."""
     meta = extract_page_metadata(result.url, timeout=timeout)
     return {
-        "platform": result.source,
+        "platform": platform_name(result.source),
+        "domain": result.source,
         "post_url": result.url,
         "title": meta.get("page_title") or result.title,
-        "caption": meta.get("caption") or "",
+        "caption": meta.get("caption") or result.metadata.get("description", "") or "",
         "author": meta.get("author") or "",
         "published_at": meta.get("published_at") or "",
         "og_image": meta.get("og_image") or result.image_url or "",

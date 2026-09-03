@@ -3,100 +3,109 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Free Bing Image scrape — no API key. Mirrors python bing_provider.py
-// Fetches Bing HTML and extracts murl fields. Falls back to permissive demo set.
-const DEMO_FALLBACK = [
-  {
-    title: "Lena — raw.githubusercontent.com (demo fallback)",
-    url: "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/lena.jpg",
-    image_url: "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/lena.jpg",
-    source: "raw.githubusercontent.com",
-    thumbnail: "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/lena.jpg",
-  },
-  {
-    title: "Wikimedia Commons — portrait (permissive)",
-    url: "https://commons.wikimedia.org/wiki/File:Lena_Soderberg.jpg",
-    image_url: "https://upload.wikimedia.org/wikipedia/commons/5/50/Lena_Soderberg.jpg",
-    source: "commons.wikimedia.org",
-    thumbnail: "https://upload.wikimedia.org/wikipedia/commons/5/50/Lena_Soderberg.jpg",
-  },
-  {
-    title: "Pexels — face portrait (permissive)",
-    url: "https://www.pexels.com/photo/woman-in-black-top-774909/",
-    image_url: "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=600",
-    source: "pexels.com",
-    thumbnail: "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=600",
-  },
-];
+/**
+ * GET /api/search?image_url=<public image URL>&max=8
+ *
+ * Genuine reverse-image search, mirroring src/search/yandex_provider.py:
+ * fetches the Yandex "search by image" results page server-side and extracts the
+ * pages that contain the image from the embedded data-state JSON.
+ * No API key. No hardcoded results. Returns [] when nothing is found.
+ */
 
-function extractMurls(html: string): string[] {
-  const re = /"murl":"([^"]+)"/g;
-  const out: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html))) {
-    try {
-      out.push(JSON.parse(`"${m[1]}"`));
-    } catch {
-      out.push(m[1]);
+type Result = { title: string; url: string; image_url: string; source: string; thumbnail: string; description?: string };
+
+const TRACKING = new Set(["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "yclid"]);
+const BLOCKLIST = ["porn", "xxx", "sex", "nude", "naked", "adult", "escort"];
+
+function stripTracking(u: string): string {
+  try {
+    const url = new URL(u);
+    for (const k of [...url.searchParams.keys()]) if (TRACKING.has(k)) url.searchParams.delete(k);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return u;
+  }
+}
+const abs = (u: string) => (u.startsWith("//") ? "https:" + u : u);
+
+function decodeEntities(s: string): string {
+  return s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+}
+
+function* siteLists(node: any): Generator<any[]> {
+  const stack = [node];
+  while (stack.length) {
+    const n = stack.pop();
+    if (Array.isArray(n)) { for (const x of n) if (x && typeof x === "object") stack.push(x); }
+    else if (n && typeof n === "object") {
+      for (const [k, v] of Object.entries(n)) {
+        if (k === "sites" && Array.isArray(v)) yield v;
+        else if (v && typeof v === "object") stack.push(v);
+      }
     }
   }
-  return [...new Set(out)];
+}
+
+function parseYandex(html: string, max: number): Result[] {
+  const out: Result[] = [];
+  const seen = new Set<string>();
+  const re = /data-state="([^"]+)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const raw = decodeEntities(m[1]);
+    if (!raw.includes("cbirSites") && !raw.includes('"sites"')) continue;
+    let state: any;
+    try { state = JSON.parse(raw); } catch { continue; }
+    for (const sites of siteLists(state)) {
+      for (const s of sites) {
+        const url = stripTracking(String(s?.url || ""));
+        if (!url.startsWith("http") || seen.has(url)) continue;
+        const domain = String(s.domain || new URL(url).hostname).toLowerCase();
+        if (BLOCKLIST.some((b) => domain.includes(b))) continue;
+        seen.add(url);
+        const img = abs(String(s?.originalImage?.url || s?.thumb?.url || ""));
+        out.push({
+          title: String(s.title || `Page on ${domain}`).trim(),
+          url,
+          image_url: img,
+          source: domain,
+          thumbnail: abs(String(s?.thumb?.url || "")) || img,
+          description: String(s.description || "").trim(),
+        });
+        if (out.length >= max) return out;
+      }
+    }
+    if (out.length) break;
+  }
+  return out;
 }
 
 export async function GET(req: NextRequest) {
-  const q = req.nextUrl.searchParams.get("q") || "portrait face";
-  const max = Math.min(parseInt(req.nextUrl.searchParams.get("max") || "6", 10) || 6, 12);
-
-  // Try SerpAPI if configured on Vercel env (server-side only, never exposed)
-  const serpKey = process.env.SERPAPI_API_KEY;
-  if (serpKey) {
-    try {
-      // We don't have an actual reverse-image upload from browser here; fall through to Bing scrape
-      // Keeping branch for future: if ?image_url= is supplied, call Google Lens.
-      const imageUrl = req.nextUrl.searchParams.get("image_url");
-      if (imageUrl) {
-        const url = `https://serpapi.com/search.json?engine=google_lens&url=${encodeURIComponent(imageUrl)}&api_key=${serpKey}`;
-        const r = await fetch(url, { next: { revalidate: 0 } });
-        if (r.ok) {
-          const j: any = await r.json();
-          const visuals: any[] = j.visual_matches || j.image_results || [];
-          const mapped = visuals.slice(0, max).map((v: any) => ({
-            title: v.title || v.source || "Visual match",
-            url: v.link || v.source || v.thumbnail || "",
-            image_url: v.thumbnail || v.image || v.link || "",
-            source: (() => { try { return new URL(v.link || v.source || "").hostname; } catch { return "serpapi"; } })(),
-            thumbnail: v.thumbnail || v.image || "",
-          })).filter((x: any) => x.image_url);
-          if (mapped.length) return NextResponse.json({ provider: "serpapi", query: q, results: mapped });
-        }
-      }
-    } catch {}
+  const imageUrl = req.nextUrl.searchParams.get("image_url");
+  const max = Math.min(parseInt(req.nextUrl.searchParams.get("max") || "8", 10) || 8, 30);
+  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+    return NextResponse.json({ error: "image_url (public http(s) URL of the query image) is required" }, { status: 400 });
   }
 
-  // Free Bing scrape
+  const yandex = `https://yandex.com/images/search?rpt=imageview&url=${encodeURIComponent(imageUrl)}`;
   try {
-    const bingUrl = `https://www.bing.com/images/search?q=${encodeURIComponent(q)}&form=HDRSC2&first=1`;
-    const r = await fetch(bingUrl, {
+    const r = await fetch(yandex, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml",
         "Accept-Language": "en-US,en;q=0.9",
       },
-      next: { revalidate: 60 },
+      cache: "no-store",
     });
-    if (r.ok) {
-      const html = await r.text();
-      const murls = extractMurls(html).slice(0, max);
-      if (murls.length) {
-        const results = murls.map((u) => {
-          let host = "bing.com";
-          try { host = new URL(u).hostname; } catch {}
-          return { title: `Image — ${host}`, url: u, image_url: u, source: host, thumbnail: u };
-        });
-        return NextResponse.json({ provider: "bing_scrape", query: q, results });
-      }
+    const html = await r.text();
+    if (!r.ok) return NextResponse.json({ provider: "yandex", query: yandex, results: [], error: `Yandex HTTP ${r.status}` }, { status: 502 });
+    if (/showcaptcha|smartcaptcha/i.test(html)) {
+      return NextResponse.json({ provider: "yandex", query: yandex, results: [], error: "Yandex served a CAPTCHA (bot protection). Not bypassed — retry later or run the Python CLI." }, { status: 503 });
     }
-  } catch {}
-
-  return NextResponse.json({ provider: "demo_fallback", query: q, results: DEMO_FALLBACK.slice(0, max), note: "Bing blocked or rate-limited — serving permissive demo images (Wikimedia/Pexels/Lena). Set SERPAPI_API_KEY for true reverse-image." });
+    const results = parseYandex(html, max);
+    return NextResponse.json({ provider: "yandex", query: yandex, results });
+  } catch (e: any) {
+    return NextResponse.json({ provider: "yandex", query: yandex, results: [], error: e?.message || String(e) }, { status: 502 });
+  }
 }

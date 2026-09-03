@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import os
+import contextlib
+import io
 import logging
+import os
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
@@ -15,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 # ── Data structures ──────────────────────────────────────────
 
+
 @dataclass
 class FaceBox:
     x1: int
@@ -22,6 +25,7 @@ class FaceBox:
     x2: int
     y2: int
     confidence: float
+
 
 @dataclass
 class DetectedFace:
@@ -34,7 +38,7 @@ class DetectedFace:
 
 _INSIGHT_APP = None  # lazy singleton
 _INSIGHT_READY = False
-_INSIGHT_ERROR: Optional[str] = None
+_INSIGHT_ERROR: str | None = None
 
 
 def _get_insight_model(det_size: int = 640, model_pack: str = "buffalo_l"):
@@ -45,11 +49,12 @@ def _get_insight_model(det_size: int = 640, model_pack: str = "buffalo_l"):
     if _INSIGHT_ERROR is not None:
         return None
     try:
-        from insightface.app import FaceAnalysis
+        warnings.filterwarnings("ignore", category=FutureWarning)  # insightface's skimage 'estimate' notice
+        with contextlib.redirect_stdout(io.StringIO()):  # silence insightface's model-loading prints
+            from insightface.app import FaceAnalysis
 
-        # Use CPU only
-        app = FaceAnalysis(name=model_pack, providers=["CPUExecutionProvider"])
-        app.prepare(ctx_id=0, det_size=(det_size, det_size))
+            app = FaceAnalysis(name=model_pack, providers=["CPUExecutionProvider"])  # CPU only
+            app.prepare(ctx_id=0, det_size=(det_size, det_size))
         _INSIGHT_APP = app
         _INSIGHT_READY = True
         logger.info("InsightFace '%s' loaded (det_size=%d)", model_pack, det_size)
@@ -60,9 +65,7 @@ def _get_insight_model(det_size: int = 640, model_pack: str = "buffalo_l"):
         return None
 
 
-def _insight_detect(
-    image_bgr: np.ndarray, det_size: int = 640, model_pack: str = "buffalo_l"
-) -> Optional[list[DetectedFace]]:
+def _insight_detect(image_bgr: np.ndarray, det_size: int = 640, model_pack: str = "buffalo_l") -> list[DetectedFace] | None:
     app = _get_insight_model(det_size=det_size, model_pack=model_pack)
     if app is None:
         return None
@@ -92,6 +95,7 @@ def _insight_detect(
 
 _HAAR = None
 
+
 def _get_haar():
     global _HAAR
     if _HAAR is not None:
@@ -115,7 +119,7 @@ def _opencv_detect(image_bgr: np.ndarray) -> list[DetectedFace]:
     gray_eq = cv2.equalizeHist(gray)
     rects = haar.detectMultiScale(gray_eq, scaleFactor=1.1, minNeighbors=5, minSize=(60, 60))
     faces: list[DetectedFace] = []
-    for (x, y, w, h) in rects:
+    for x, y, w, h in rects:
         # pseudo-embedding: resize face crop to 32x32, flatten, L2-norm → 1024-D then PCA-ish down to 128 by averaging
         crop = gray[y : y + h, x : x + w]
         if crop.size == 0:
@@ -148,6 +152,7 @@ def _opencv_detect(image_bgr: np.ndarray) -> list[DetectedFace]:
 
 
 # ── Public API ──────────────────────────────────────────────
+
 
 def detect_faces(
     image_path: str | os.PathLike,
@@ -187,12 +192,14 @@ def detect_faces(
     return faces
 
 
-def largest_face(faces: list[DetectedFace]) -> Optional[DetectedFace]:
+def largest_face(faces: list[DetectedFace]) -> DetectedFace | None:
     if not faces:
         return None
+
     def area(f: DetectedFace) -> int:
         b = f.bbox
         return (b.x2 - b.x1) * (b.y2 - b.y1)
+
     return max(faces, key=area)
 
 

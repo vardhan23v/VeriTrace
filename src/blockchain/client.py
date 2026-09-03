@@ -1,4 +1,9 @@
-"""blockchain.client — Web3 client with eth-tester default + external RPC support + contract helpers."""
+"""blockchain.client — Web3 client: eth-tester (default) or any JSON-RPC node (Ganache / Anvil / Hardhat / testnet).
+
+Contract source lives in ``contracts/VerificationRegistry.sol``. It is compiled with
+py-solc-x on first use and the ABI + bytecode are cached in
+``contracts/VerificationRegistry.json`` so later runs (and machines without solc) work.
+"""
 
 from __future__ import annotations
 
@@ -6,17 +11,21 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from web3 import Web3
 
 logger = logging.getLogger(__name__)
 
-# ── ABI (kept inline so no build step required) ────────────
-# Generated from contracts/VerificationRegistry.sol (solc 0.8.20)
-VERIFICATION_REGISTRY_ABI = json.loads(r"""
+ROOT = Path(__file__).resolve().parents[2]
+SOL_PATH = ROOT / "contracts" / "VerificationRegistry.sol"
+ARTIFACT_PATH = ROOT / "contracts" / "VerificationRegistry.json"
+DEPLOY_INFO_PATH = ROOT / "data" / "blockchain.json"
+SOLC_VERSION = "0.8.20"
+
+# ABI of contracts/VerificationRegistry.sol (kept inline so `verify` works without compiling).
+VERIFICATION_REGISTRY_ABI: list[dict[str, Any]] = json.loads(r"""
 [
-  {"inputs":[],"stateMutability":"nonpayable","type":"constructor"},
   {"anonymous":false,"inputs":[{"indexed":true,"internalType":"bytes32","name":"dataHash","type":"bytes32"},{"indexed":false,"internalType":"uint256","name":"timestamp","type":"uint256"},{"indexed":true,"internalType":"address","name":"sender","type":"address"}],"name":"RecordStored","type":"event"},
   {"inputs":[{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"authors","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
   {"inputs":[{"internalType":"bytes32","name":"dataHash","type":"bytes32"}],"name":"exists","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
@@ -26,242 +35,277 @@ VERIFICATION_REGISTRY_ABI = json.loads(r"""
 ]
 """)
 
-# Bytecode for VerificationRegistry (solc 0.8.20, optimizer 200 runs)
-# This is the deployed bytecode for the contract above. It is embedded so
-# deployment works even without solc installed. Generated once and pinned.
-# If you change the Solidity, regenerate via: python scripts/compile_contract.py
-VERIFICATION_REGISTRY_BYTECODE = (
-    "0x608060405234801561001057600080fd5b50610658806100206000398051906020019061003e91906101bf565b811461004857600080fd5b50600436106100485760003560e01c80636807c56d1461004d5780637af33b4414610068578063a703a3631461007d578063c25760a714610092575b600080fd5b61006660005481565b60405190815260200160405180910390f35b61006661007b3660046102f9565b60016020526000908152604090205481565b6100666100a0366004610327565b60026020526000908152604090205481565b600080546001600160a01b031633146100d857600080fd5b6001600160a01b0382166100fa5760405162461bcd60e51b81526020600482015260146024820152735665726954726163653a20696e76616c6964206861736860601b604482015260640160405180910390fd5b600160205260009081526040902054156101485760405162461bcd60e51b815260206004820152601a60248201527f5665726954726163653a20616c72656164792073746f7265640000000000000000604482015260640160405180910390fd5b60016020526000908152604090204290556001600160a01b0382166000908152602081905260409020546001600160a01b0316336001600160a01b03167f0f0f0e3d8e3b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b060405160405180910390a3600080fd5b6000805460408051918252602082018390523392820192909252517f0f0f0e3d8e3b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b0916060200160405180910390a160405180910390a1600080fd5b60008054604080519182526020820184905233928201929092527f0f0f0e3d8e3b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b0916060200160405180910390a260405180910390a1600080fd5b60008054604080519283526020830186905233928301929092527f0f0f0e3d8e3b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b0916060200160405180910390a360405180910390a1600080fd5b6000805460408051918252602082018390523392820192909252517f0f0f0e3d8e3b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b0916060200160405180910390a160405180910390a1"
-)
-# NOTE: The bytecode above is a placeholder for eth-tester path — the real deploy path
-# uses py-solc-x to compile fresh. eth-tester deploy via compiled artifact is preferred.
-# We keep this placeholder to avoid breaking imports if solc not installed; deploy()
-# will compile from source when possible.
+
+def _hex(h: Any) -> str:
+    """Normalise HexBytes / str to a 0x-prefixed lowercase hex string."""
+    if h is None:
+        return ""
+    s = h.hex() if hasattr(h, "hex") else str(h)
+    s = s.lower()
+    return s if s.startswith("0x") else "0x" + s
 
 
-def _compile_via_solc() -> tuple[list, str]:
-    """Compile contracts/VerificationRegistry.sol via py-solc-x. Returns (abi, bytecode)."""
+def _norm_hash(data_hash_hex: str) -> bytes:
+    h = data_hash_hex.strip().lower().removeprefix("0x")
+    if len(h) != 64:
+        raise ValueError(f"Hash must be 64 hex chars, got {len(h)}")
+    return bytes.fromhex(h)
+
+
+# ── Compilation ──────────────────────────────────────────────────────
+
+
+def compile_contract(force: bool = False) -> tuple[list, str]:
+    """Return (abi, bytecode). Compiles with solc when possible, else loads the cached artifact."""
+    if not force and ARTIFACT_PATH.exists():
+        try:
+            art = json.loads(ARTIFACT_PATH.read_text())
+            if art.get("abi") and len(art.get("bytecode", "")) > 200:
+                src_mtime = SOL_PATH.stat().st_mtime if SOL_PATH.exists() else 0
+                if art.get("source_mtime", 0) >= src_mtime:
+                    return art["abi"], art["bytecode"]
+        except Exception:  # noqa: BLE001
+            pass
+
     try:
         import solcx
 
-        sol_path = Path(__file__).resolve().parents[2] / "contracts" / "VerificationRegistry.sol"
-        if not sol_path.exists():
-            raise FileNotFoundError(f"Contract not found: {sol_path}")
-        # install 0.8.20 if missing
-        try:
-            solcx.get_solc_version()
-        except Exception:
-            pass
+        if not SOL_PATH.exists():
+            raise FileNotFoundError(f"Contract not found: {SOL_PATH}")
         installed = [str(v) for v in solcx.get_installed_solc_versions()]
-        if "0.8.20" not in installed:
-            logger.info("Installing solc 0.8.20 (one-time)...")
-            solcx.install_solc("0.8.20")
-        solcx.set_solc_version("0.8.20")
-
+        if SOLC_VERSION not in installed:
+            logger.info("Installing solc %s (one-time)...", SOLC_VERSION)
+            solcx.install_solc(SOLC_VERSION)
+        solcx.set_solc_version(SOLC_VERSION)
         compiled = solcx.compile_files(
-            [str(sol_path)],
-            output_values=["abi", "bin"],
-            solc_version="0.8.20",
-            optimize=True,
-            optimize_runs=200,
+            [str(SOL_PATH)], output_values=["abi", "bin"], solc_version=SOLC_VERSION, optimize=True, optimize_runs=200
         )
-        # key is like "contracts/VerificationRegistry.sol:VerificationRegistry"
         key = next(k for k in compiled if k.endswith(":VerificationRegistry"))
-        abi = compiled[key]["abi"]
-        bytecode = "0x" + compiled[key]["bin"]
+        abi, bytecode = compiled[key]["abi"], "0x" + compiled[key]["bin"]
+        try:
+            ARTIFACT_PATH.write_text(
+                json.dumps(
+                    {
+                        "contractName": "VerificationRegistry",
+                        "solc": SOLC_VERSION,
+                        "abi": abi,
+                        "bytecode": bytecode,
+                        "source_mtime": SOL_PATH.stat().st_mtime,
+                    },
+                    indent=2,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return abi, bytecode
     except Exception as exc:  # noqa: BLE001
-        logger.warning("solc compile failed (%s) — using embedded ABI/bytecode", exc)
-        return VERIFICATION_REGISTRY_ABI, VERIFICATION_REGISTRY_BYTECODE
+        if ARTIFACT_PATH.exists():
+            logger.warning("solc compile failed (%s) — using cached artifact %s", exc, ARTIFACT_PATH.name)
+            art = json.loads(ARTIFACT_PATH.read_text())
+            return art["abi"], art["bytecode"]
+        raise RuntimeError(
+            f"Cannot compile contract ({exc}) and no cached artifact at {ARTIFACT_PATH}. "
+            "Install py-solc-x (pip install py-solc-x) or restore contracts/VerificationRegistry.json."
+        ) from exc
 
 
-def get_web3(rpc_url: Optional[str] = None) -> Web3:
-    """Return Web3 instance.
+# ── Web3 factory ─────────────────────────────────────────────────────
 
-    - If RPC_URL env / rpc_url arg is set and reachable, use HTTPProvider (Anvil/Ganache).
-    - Otherwise use eth-tester in-memory chain (no external process needed).
-    """
+
+def get_web3(rpc_url: str | None = None) -> Web3:
+    """Return a Web3 instance: external JSON-RPC if RPC_URL is reachable, else in-memory eth-tester."""
     url = (rpc_url or os.getenv("RPC_URL", "")).strip()
-    # Try external RPC first if configured
     if url:
         try:
-            w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 5}))
+            w3 = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": 8}))
             if w3.is_connected():
                 logger.info("Connected to external chain: %s (chainId=%s)", url, w3.eth.chain_id)
                 return w3
-            else:
-                logger.warning("RPC_URL %s not reachable — falling back to eth-tester", url)
+            logger.warning("RPC_URL %s not reachable — falling back to eth-tester (ephemeral)", url)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("RPC connection failed (%s) — falling back to eth-tester", exc)
+            logger.warning("RPC connection failed (%s) — falling back to eth-tester (ephemeral)", exc)
 
-    # Fallback: eth-tester
     try:
         from eth_tester import EthereumTester, PyEVMBackend
         from web3.providers.eth_tester import EthereumTesterProvider
 
-        tester = EthereumTester(backend=PyEVMBackend())
-        w3 = Web3(EthereumTesterProvider(tester))
-        logger.info("Using eth-tester in-memory chain (chainId=%s)", w3.eth.chain_id)
+        w3 = Web3(EthereumTesterProvider(EthereumTester(backend=PyEVMBackend())))
+        logger.info("Using eth-tester in-memory chain (chainId=%s) — state is lost when the process exits", w3.eth.chain_id)
         return w3
     except ImportError as exc:
         raise RuntimeError(
-            "eth-tester not installed. Install with: pip install \"eth-tester[py-evm]\" "
-            "or set RPC_URL to a running Anvil/Ganache node."
+            'eth-tester not installed. Run: pip install "eth-tester[py-evm]"  or set RPC_URL to a running node.'
         ) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise RuntimeError(f"Failed to init eth-tester: {exc}") from exc
+
+
+def is_ephemeral(w3: Web3) -> bool:
+    return "EthereumTester" in type(w3.provider).__name__
+
+
+# ── Contract client ──────────────────────────────────────────────────
 
 
 class VerificationRegistryClient:
-    """Wrapper around VerificationRegistry contract."""
+    """Thin wrapper around the VerificationRegistry contract."""
 
-    def __init__(self, w3: Web3, address: Optional[str] = None):
+    def __init__(self, w3: Web3, address: str | None = None):
         self.w3 = w3
-        self.address = address or os.getenv("CONTRACT_ADDRESS", "").strip()
         self.abi = VERIFICATION_REGISTRY_ABI
+        self.address: str | None = None
         self._contract = None
-        if self.address:
-            self._contract = w3.eth.contract(address=Web3.to_checksum_address(self.address), abi=self.abi)
+        addr = (address or os.getenv("CONTRACT_ADDRESS", "")).strip()
+        if addr:
+            self._attach(addr)
+
+    # -- helpers --
+    def _attach(self, addr: str) -> None:
+        self.address = Web3.to_checksum_address(addr)
+        self._contract = self.w3.eth.contract(address=self.address, abi=self.abi)
 
     @property
     def contract(self):
         if self._contract is None:
-            raise RuntimeError(
-                "CONTRACT_ADDRESS not set and no deployed contract. "
-                "Run: python scripts/deploy_contract.py  or  python main.py identify --image <path>"
-            )
+            raise RuntimeError("No contract attached. Run `python main.py deploy` or set CONTRACT_ADDRESS.")
         return self._contract
 
-    def deploy(self, private_key: Optional[str] = None) -> str:
-        """Compile and deploy contract. Returns deployed address. Persists to data/blockchain.json and CONTRACT_ADDRESS env.
+    def has_code(self, address: str | None = None) -> bool:
+        addr = address or self.address
+        if not addr:
+            return False
+        try:
+            code = self.w3.eth.get_code(Web3.to_checksum_address(addr))
+            return bool(code) and code not in (b"", b"0x")
+        except Exception:  # noqa: BLE001
+            return False
 
-        Uses w3.eth.accounts[0] if private_key not provided (eth-tester).
-        """
-        abi, bytecode = _compile_via_solc()
-        # Validate bytecode isn't placeholder
-        if len(bytecode) < 200:
-            raise RuntimeError("Contract bytecode unavailable — solc compile failed and no valid embedded bytecode.")
+    def chain_info(self) -> dict:
+        prov = type(self.w3.provider).__name__
+        return {
+            "chain_id": self.w3.eth.chain_id,
+            "provider": "eth-tester (in-memory, ephemeral)"
+            if is_ephemeral(self.w3)
+            else getattr(self.w3.provider, "endpoint_uri", prov),
+            "ephemeral": is_ephemeral(self.w3),
+            "latest_block": self.w3.eth.block_number,
+            "contract_address": self.address,
+        }
 
-        acct = None
+    def _send(self, fn_call, private_key: str | None, gas: int) -> Any:
+        """Send a contract call either signed (external key) or via node-managed account."""
         if private_key:
             acct = self.w3.eth.account.from_key(private_key)
-            deployer = acct.address
-        else:
-            deployer = self.w3.eth.accounts[0]
-
-        logger.info("Deploying VerificationRegistry from %s ...", deployer)
-        contract_factory = self.w3.eth.contract(abi=abi, bytecode=bytecode)
-
-        # eth-tester vs external
-        if private_key:
-            # external chain: build + sign
-            tx = contract_factory.constructor().build_transaction(
+            tx = fn_call.build_transaction(
                 {
-                    "from": deployer,
-                    "nonce": self.w3.eth.get_transaction_count(deployer),
-                    "gas": 2_000_000,
+                    "from": acct.address,
+                    "nonce": self.w3.eth.get_transaction_count(acct.address),
+                    "gas": gas,
                     "gasPrice": self.w3.eth.gas_price or self.w3.to_wei("20", "gwei"),
                     "chainId": self.w3.eth.chain_id,
                 }
             )
             signed = acct.sign_transaction(tx)
-            tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
-        else:
-            # eth-tester: direct send
-            tx_hash = contract_factory.constructor().transact({"from": deployer, "gas": 2_000_000})
+            return self.w3.eth.send_raw_transaction(signed.raw_transaction)
+        accounts = self.w3.eth.accounts
+        if not accounts:
+            raise RuntimeError("Node exposes no unlocked accounts — set PRIVATE_KEY in .env.")
+        return fn_call.transact({"from": accounts[0], "gas": gas})
 
-        receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
-        addr = receipt["contractAddress"] or receipt.get("contract_address")
+    # -- deploy --
+    def deploy(self, private_key: str | None = None) -> str:
+        abi, bytecode = compile_contract()
+        factory = self.w3.eth.contract(abi=abi, bytecode=bytecode)
+        deployer = self.w3.eth.account.from_key(private_key).address if private_key else self.w3.eth.accounts[0]
+        logger.info("Deploying VerificationRegistry from %s ...", deployer)
+        tx_hash = self._send(factory.constructor(), private_key, gas=1_500_000)
+        receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+        addr = receipt.get("contractAddress")
         if not addr:
-            raise RuntimeError(f"Deploy failed, receipt: {receipt}")
-        addr = Web3.to_checksum_address(addr)
-        logger.info("Deployed at %s (tx %s)", addr, tx_hash.hex())
-
-        # persist
-        self.address = addr
+            raise RuntimeError(f"Deploy failed, receipt: {dict(receipt)}")
         self.abi = abi
-        self._contract = self.w3.eth.contract(address=addr, abi=abi)
-
-        # save to data/blockchain.json for persistence across eth-tester? (eth-tester is ephemeral)
+        self._attach(addr)
+        logger.info("Deployed at %s (tx %s)", self.address, _hex(tx_hash))
         try:
-            out_path = Path(__file__).resolve().parents[2] / "data" / "blockchain.json"
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(json.dumps({"address": addr, "abi": abi, "tx_hash": tx_hash.hex()}, indent=2))
-        except Exception:
+            DEPLOY_INFO_PATH.parent.mkdir(parents=True, exist_ok=True)
+            DEPLOY_INFO_PATH.write_text(
+                json.dumps(
+                    {
+                        "address": self.address,
+                        "chain_id": self.w3.eth.chain_id,
+                        "tx_hash": _hex(tx_hash),
+                        "block_number": receipt.get("blockNumber"),
+                        "ephemeral": is_ephemeral(self.w3),
+                        "abi": abi,
+                    },
+                    indent=2,
+                )
+            )
+        except Exception:  # noqa: BLE001
             pass
+        return self.address  # type: ignore[return-value]
 
-        return addr
-
-    def ensure_deployed(self, private_key: Optional[str] = None) -> str:
-        """Deploy if not already deployed; return address."""
-        if self.address and self._contract is not None:
-            # quick check that code exists
+    def ensure_deployed(self, private_key: str | None = None) -> str:
+        """Attach to a deployed contract (env → data/blockchain.json) or deploy a fresh one."""
+        if self.address and self.has_code():
+            return self.address
+        if not self.address and DEPLOY_INFO_PATH.exists():
             try:
-                code = self.w3.eth.get_code(self.address)
-                if code and code != b"" and code != b"0x":
-                    return self.address
-            except Exception:
+                info = json.loads(DEPLOY_INFO_PATH.read_text())
+                if info.get("address") and info.get("chain_id") == self.w3.eth.chain_id and self.has_code(info["address"]):
+                    self._attach(info["address"])
+                    return self.address  # type: ignore[return-value]
+            except Exception:  # noqa: BLE001
                 pass
         return self.deploy(private_key=private_key)
 
-    # ── Contract calls ──────────────────────────────────────
-
-    def store(self, data_hash_hex: str, private_key: Optional[str] = None) -> dict:
-        """Store bytes32 hash on-chain. Returns {tx_hash, block_number, gas_used}.
-
-        data_hash_hex: 64-char hex (with or without 0x)
-        """
-        h = data_hash_hex.strip().lower().removeprefix("0x")
-        if len(h) != 64:
-            raise ValueError(f"Hash must be 64 hex chars, got {len(h)}")
-        hash_bytes = bytes.fromhex(h)
-
-        # ensure contract
+    # -- contract calls --
+    def store(self, data_hash_hex: str, private_key: str | None = None) -> dict:
+        """Store a bytes32 hash on-chain. Returns tx metadata. Raises RuntimeError on revert."""
+        hash_bytes = _norm_hash(data_hash_hex)
         if self._contract is None:
             self.ensure_deployed(private_key=private_key)
-
-        # choose sender
-        if private_key:
-            acct = self.w3.eth.account.from_key(private_key)
-            sender = acct.address
-            fn = self.contract.functions.storeRecord(hash_bytes)
-            tx = fn.build_transaction(
-                {
-                    "from": sender,
-                    "nonce": self.w3.eth.get_transaction_count(sender),
-                    "gas": 200_000,
-                    "gasPrice": self.w3.eth.gas_price or self.w3.to_wei("20", "gwei"),
-                    "chainId": self.w3.eth.chain_id,
-                }
-            )
-            signed = acct.sign_transaction(tx)
-            tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
-        else:
-            sender = self.w3.eth.accounts[0]
-            tx_hash = self.contract.functions.storeRecord(hash_bytes).transact({"from": sender, "gas": 200_000})
-
-        receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+        try:
+            tx_hash = self._send(self.contract.functions.storeRecord(hash_bytes), private_key, gas=200_000)
+        except Exception as exc:  # noqa: BLE001
+            msg = str(exc)
+            if "already stored" in msg or "revert" in msg.lower():
+                raise RuntimeError(f"Transaction reverted: {msg}") from exc
+            raise
+        receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
         if receipt.get("status") == 0:
-            # Try to decode revert reason
-            raise RuntimeError(f"Transaction reverted (hash {tx_hash.hex()}). Possibly duplicate hash.")
+            raise RuntimeError(f"Transaction reverted (hash {_hex(tx_hash)}). Possibly duplicate hash.")
+        block = self.w3.eth.get_block(receipt["blockNumber"])
         return {
-            "tx_hash": tx_hash.hex(),
-            "block_number": receipt.get("blockNumber"),
-            "gas_used": receipt.get("gasUsed"),
-            "status": receipt.get("status"),
+            "tx_hash": _hex(tx_hash),
+            "block_number": int(receipt["blockNumber"]),
+            "gas_used": int(receipt.get("gasUsed", 0)),
+            "status": int(receipt.get("status", 1)),
+            "timestamp": int(block["timestamp"]),
+            "sender": receipt.get("from"),
         }
 
     def verify(self, data_hash_hex: str) -> tuple[bool, int]:
-        """Check if hash exists. Returns (exists, timestamp)."""
-        h = data_hash_hex.strip().lower().removeprefix("0x")
-        if len(h) != 64:
-            raise ValueError(f"Hash must be 64 hex chars, got {len(h)}")
-        hash_bytes = bytes.fromhex(h)
-        if self._contract is None:
-            raise RuntimeError("Contract not deployed — cannot verify.")
+        """Return (exists, block_timestamp) for the hash."""
+        hash_bytes = _norm_hash(data_hash_hex)
         exists, ts = self.contract.functions.verifyRecord(hash_bytes).call()
         return bool(exists), int(ts)
 
     def exists(self, data_hash_hex: str) -> bool:
-        e, _ = self.verify(data_hash_hex)
-        return e
+        return self.verify(data_hash_hex)[0]
+
+    def find_record_event(self, data_hash_hex: str) -> dict | None:
+        """Find the RecordStored event for a hash (original tx hash, block, sender). None if absent."""
+        hash_bytes = _norm_hash(data_hash_hex)
+        try:
+            logs = self.contract.events.RecordStored.get_logs(argument_filters={"dataHash": hash_bytes}, from_block=0)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("get_logs failed: %s", exc)
+            return None
+        if not logs:
+            return None
+        ev = logs[0]
+        return {
+            "tx_hash": _hex(ev["transactionHash"]),
+            "block_number": int(ev["blockNumber"]),
+            "timestamp": int(ev["args"]["timestamp"]),
+            "sender": ev["args"]["sender"],
+        }

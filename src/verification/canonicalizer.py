@@ -26,6 +26,7 @@ def canonical_json(data: dict[str, Any]) -> str:
 
 # ── Schema for discovered post ────────────────────────────────
 
+
 def build_canonical_record(
     *,
     platform: str,

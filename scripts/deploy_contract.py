@@ -7,11 +7,13 @@ from pathlib import Path
 # Ensure project root on path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.blockchain.client import get_web3, VerificationRegistryClient
+from src.blockchain.client import VerificationRegistryClient, get_web3
 from src.config import Config
+
 
 def main():
     import argparse
+
     ap = argparse.ArgumentParser(description="Deploy VerificationRegistry contract")
     ap.add_argument("--rpc", default=None, help="RPC URL (default: $RPC_URL or eth-tester)")
     ap.add_argument("--private-key", default=None, help="Deployer private key (optional for eth-tester)")
@@ -29,6 +31,7 @@ def main():
     print(f"Deployed at: {addr}")
     print(f"W3 provider: {w3.provider}")
     print("Add to .env: CONTRACT_ADDRESS=" + addr)
+
 
 if __name__ == "__main__":
     main()

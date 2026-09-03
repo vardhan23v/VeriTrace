@@ -1,9 +1,9 @@
 """tests/test_face.py — face module tests (no real InsightFace model needed)."""
 
-import pathlib
 import tempfile
-import numpy as np
+
 import cv2
+import numpy as np
 import pytest
 
 
@@ -69,8 +69,7 @@ def test_valid_image_returns_list():
 
 
 def test_matcher_cosine():
-    from src.face.matcher import cosine_similarity, rank_candidates
-    from src.face.detector import DetectedFace, FaceBox
+    from src.face.matcher import cosine_similarity
 
     a = np.array([1, 0, 0], dtype=np.float32)
     b = np.array([1, 0, 0], dtype=np.float32)
@@ -86,8 +85,9 @@ def test_matcher_cosine():
 
 
 def test_largest_face():
-    from src.face.detector import largest_face, DetectedFace, FaceBox
     import numpy as np
+
+    from src.face.detector import DetectedFace, FaceBox, largest_face
 
     def mk(x1, y1, x2, y2):
         return DetectedFace(bbox=FaceBox(x1, y1, x2, y2, 0.9), embedding=np.zeros(512, dtype=np.float32), det_score=0.9)

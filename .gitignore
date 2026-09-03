@@ -48,3 +48,9 @@ Thumbs.db
 .next/
 web/.next/
 web/out/
+
+# OS / editor
+.DS_Store
+web/out/
+web/.next/
+data/candidates/

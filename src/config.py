@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load .env from project root if present
@@ -17,6 +18,17 @@ class Config:
     SERPAPI_API_KEY: str = os.getenv("SERPAPI_API_KEY", "")
     BING_API_KEY: str = os.getenv("BING_API_KEY", "")
     SEARCH_MAX_RESULTS: int = int(os.getenv("SEARCH_MAX_RESULTS", "10"))
+    INPUT_IMAGE_URL: str = os.getenv("INPUT_IMAGE_URL", "")
+    # Comma-separated substrings; any result whose domain contains one is dropped before evaluation.
+    SEARCH_DOMAIN_BLOCKLIST: list[str] = [
+        s.strip().lower()
+        for s in os.getenv("SEARCH_DOMAIN_BLOCKLIST", "porn,xxx,sex,nude,naked,adult,escort").split(",")
+        if s.strip()
+    ]
+    PREFER_SOCIAL: bool = os.getenv("PREFER_SOCIAL", "true").lower() in ("1", "true", "yes")
+    # Ranking bonus added to the similarity of social-media candidates that already pass the
+    # threshold, so a confident Instagram/Pinterest match beats a marginally higher blog match.
+    SOCIAL_BONUS: float = float(os.getenv("SOCIAL_BONUS", "0.05"))
 
     # Face
     FACE_SIMILARITY_THRESHOLD: float = float(os.getenv("FACE_SIMILARITY_THRESHOLD", "0.60"))

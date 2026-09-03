@@ -36,7 +36,7 @@ export default function AboutPage() {
         <h1 className="display mt-4 text-[36px] sm:text-[44px] font-bold tracking-[-0.02em] leading-[0.95]">About VeriTrace</h1>
         <p className="mt-4 text-[15px] leading-7 text-[#5A5753]">
           A production CLI + browser verifier that chains <span className="font-semibold text-[#1A1A18]">InsightFace (ArcFace 512-D)</span> face verification,
-          <span className="font-semibold text-[#1A1A18]"> genuine visual search</span> (SerpAPI Google Lens / Bing Visual / free BingScrape),
+          <span className="font-semibold text-[#1A1A18]"> genuine visual search</span> (Yandex reverse-image with no key, or SerpAPI Google Lens / Bing Visual Search),
           deterministic <span className="font-semibold text-[#1A1A18]">SHA-256(canonical JSON)</span>, and a Solidity{" "}
           <span className="font-semibold text-[#1A1A18]">VerificationRegistry</span> on an Ethereum-compatible chain into one pipeline:{" "}
           <span className="mono rounded-full bg-[#1A1A18] px-2 py-0.5 text-xs text-white">identify → verify → VERIFIED / TAMPERED</span>.
@@ -66,7 +66,7 @@ export default function AboutPage() {
               Candidate images are downloaded over HTTPS and re-verified by embedding before ranking. Only the 32-byte SHA-256 of the canonical record touches the chain — no PII on-chain.
             </p>
             <p className="mt-3 text-sm leading-6 text-[#8A817C]">
-              Default search is <span className="mono text-xs font-medium text-[#1A1A18]">bing_scrape</span> (no API key). For true reverse-image, set{" "}
+              Default search is <span className="mono text-xs font-medium text-[#1A1A18]">yandex</span> (keyless reverse-image). For Google Lens, set{" "}
               <span className="mono text-xs font-medium">SERPAPI_API_KEY</span>. Threshold is configurable; the app reports “Face Similarity Match”, never absolute identity.
             </p>
           </section>

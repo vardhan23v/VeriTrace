@@ -4,7 +4,7 @@ import { useState } from "react";
 
 const STEPS = [
   { n: "01", title: "Face Detection", desc: "Browser FaceDetector + InsightFace fallback. ArcFace 512-D, L2-normalized.", tag: "detector.py" },
-  { n: "02", title: "Visual Search", desc: "Live Bing scrape via /api/search — real murl extraction. SerpAPI Lens when key set.", tag: "search" },
+  { n: "02", title: "Visual Search", desc: "Reverse-image search (Yandex CBIR, no key) returns the pages that contain the face image. SerpAPI Google Lens / Bing Visual when keys are set.", tag: "search" },
   { n: "03", title: "Candidate Verify", desc: "Download candidates → re-detect faces → cosine similarity → rank.", tag: "matcher.py" },
   { n: "04", title: "Canonical + Hash", desc: "Sorted JSON → UTF-8 → SHA-256. Deterministic, no PII on-chain.", tag: "canonicalizer" },
   { n: "05", title: "Blockchain", desc: "VerificationRegistry.storeRecord(bytes32) — eth-tester / Ganache / Anvil.", tag: "solidity" },
@@ -124,7 +124,7 @@ export default function Page() {
                 {/* search card */}
                 <div className="rounded-[20px] border border-[#E8E0D6] bg-white p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold">Web discovery — <span className="font-normal text-[#8A817C]">/api/search → Bing murl</span></span>
+                    <span className="text-xs font-semibold">Web discovery — <span className="font-normal text-[#8A817C]">/api/search → Yandex reverse-image</span></span>
                     <span className="text-[11px] rounded-full bg-[#F3EEE6] px-2 py-1 font-medium">6 candidates</span>
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2">

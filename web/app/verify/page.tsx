@@ -1,197 +1,184 @@
 "use client";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
-async function sha256Hex(obj: unknown): Promise<string> {
-  const det = JSON.stringify(Object.fromEntries(Object.entries(obj as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))), null, 0);
-  const enc = new TextEncoder().encode(det);
-  const buf = await crypto.subtle.digest("SHA-256", enc);
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+/**
+ * In-browser showcase of the VeriTrace pipeline.
+ *
+ * What is REAL here:
+ *   • face detection on your image (browser FaceDetector API where available)
+ *   • reverse-image search — /api/search fetches Yandex "search by image" for the public URL you give
+ *   • a face check on each candidate image (FaceDetector, when the CDN allows cross-origin reads)
+ *   • canonical JSON + SHA-256 (crypto.subtle) — identical to the Python canonicalizer
+ *   • tamper detection by re-hashing
+ * What is NOT real here: the blockchain. A browser page cannot sign transactions to your local chain,
+ * so the fingerprint is anchored in a *browser ledger* (localStorage) and labelled as such.
+ * ArcFace similarity scores are also CLI-only (no 512-D embedding model runs in the page).
+ */
+
+const SAMPLE_URL = "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/lena.jpg";
+
+async function sha256Hex(data: ArrayBuffer | string): Promise<string> {
+  const buf = typeof data === "string" ? new TextEncoder().encode(data) : data;
+  const d = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
-function shortHash(h: string) { return h.slice(0, 8) + "…" + h.slice(-4); }
-type FaceBox = { x: number; y: number; w: number; h: number; conf: number };
-type Candidate = { title: string; url: string; image_url: string; source: string; thumbnail: string; similarity?: number; faceBox?: FaceBox | null };
-type Step = { label: string; status: "idle" | "run" | "done" | "err"; detail?: string };
-const THRESH_DEFAULT = 0.45;
+/** Same rules as src/verification/canonicalizer.py: sorted keys, compact separators, UTF-8. */
+function canonicalJson(obj: Record<string, string>): string {
+  return JSON.stringify(Object.fromEntries(Object.entries(obj).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
+}
+const short = (h: string) => h.slice(0, 10) + "…" + h.slice(-6);
+
+type FaceBox = { x: number; y: number; w: number; h: number };
+type Candidate = { title: string; url: string; image_url: string; source: string; thumbnail: string; description?: string; face?: "yes" | "no" | "unknown" };
+type Step = { label: string; status: "idle" | "run" | "done" | "err" | "skip"; detail?: string };
+type Ledger = Record<string, { canonical: Record<string, string>; anchoredAt: number }>;
+
+const LEDGER_KEY = "veritrace_browser_ledger";
+function readLedger(): Ledger { try { return JSON.parse(localStorage.getItem(LEDGER_KEY) || "{}"); } catch { return {}; } }
+function writeLedger(l: Ledger) { try { localStorage.setItem(LEDGER_KEY, JSON.stringify(l)); } catch {} }
+
+async function detectFace(img: HTMLImageElement): Promise<FaceBox | null | "unsupported"> {
+  const FD: any = (window as any).FaceDetector;
+  if (!FD) return "unsupported";
+  const cv = document.createElement("canvas");
+  cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+  cv.getContext("2d")!.drawImage(img, 0, 0);
+  const faces: any[] = await new FD({ fastMode: true, maxDetectedFaces: 5 }).detect(cv);
+  if (!faces?.length) return null;
+  const f = faces.sort((a, b) => b.boundingBox.width * b.boundingBox.height - a.boundingBox.width * a.boundingBox.height)[0].boundingBox;
+  return { x: Math.round(f.x), y: Math.round(f.y), w: Math.round(f.width), h: Math.round(f.height) };
+}
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((res, rej) => { const im = new Image(); im.crossOrigin = "anonymous"; im.onload = () => res(im); im.onerror = rej; im.src = src; });
+}
+
+const INITIAL_STEPS: Step[] = [
+  { label: "Load image", status: "idle" },
+  { label: "Detect face", status: "idle" },
+  { label: "Reverse-image search", status: "idle" },
+  { label: "Face check on candidates", status: "idle" },
+  { label: "Canonical + SHA-256", status: "idle" },
+  { label: "Anchor (browser ledger)", status: "idle" },
+];
 
 export default function VerifyPage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [imgNatural, setImgNatural] = useState<{ w: number; h: number } | null>(null);
   const [faceBox, setFaceBox] = useState<FaceBox | null>(null);
-  const [threshold, setThreshold] = useState(THRESH_DEFAULT);
-  const [steps, setSteps] = useState<Step[]>([
-    { label: "Load image", status: "idle" },
-    { label: "Detect face", status: "idle" },
-    { label: "Embedding", status: "idle" },
-    { label: "Visual search", status: "idle" },
-    { label: "Compare", status: "idle" },
-    { label: "Blockchain", status: "idle" },
-  ]);
+  const [detector, setDetector] = useState("Browser FaceDetector");
+  const [imageUrl, setImageUrl] = useState(SAMPLE_URL);
+  const [steps, setSteps] = useState<Step[]>(INITIAL_STEPS);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [best, setBest] = useState<Candidate | null>(null);
-  const [provider, setProvider] = useState("—");
+  const [chosen, setChosen] = useState<Candidate | null>(null);
+  const [queryUrl, setQueryUrl] = useState<string | null>(null);
+  const [imageSha, setImageSha] = useState<string | null>(null);
   const [canonical, setCanonical] = useState<Record<string, string> | null>(null);
   const [hash, setHash] = useState<string | null>(null);
-  const [imageSha256, setImageSha256] = useState<string | null>(null);
-  const [tx, setTx] = useState<{ hash: string; block: number; contract: string; ts: number } | null>(null);
+  const [anchoredAt, setAnchoredAt] = useState<number | null>(null);
   const [verifyState, setVerifyState] = useState<"idle" | "verified" | "tampered">("idle");
-  const [onChainHash, setOnChainHash] = useState<string | null>(null);
-  const [tamperCaption, setTamperCaption] = useState("");
+  const [tamperText, setTamperText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [detectorKind, setDetectorKind] = useState("Browser FaceDetector");
   const [err, setErr] = useState<string | null>(null);
   const imgRef = useRef<HTMLImageElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const runDetection = useCallback(async (imgEl: HTMLImageElement, canvasEl: HTMLCanvasElement | null) => {
-    const W = imgEl.naturalWidth, H = imgEl.naturalHeight;
-    setImgNatural({ w: W, h: H });
-    try {
-      const FD: any = (window as any).FaceDetector;
-      if (FD) {
-        setDetectorKind("Browser FaceDetector (native)");
-        const detector = new FD({ fastMode: true, maxDetectedFaces: 5 });
-        if (canvasEl) {
-          canvasEl.width = W; canvasEl.height = H;
-          const ctx = canvasEl.getContext("2d")!;
-          ctx.drawImage(imgEl, 0, 0, W, H);
-          const faces = await detector.detect(canvasEl);
-          if (faces?.length) {
-            const f = faces.sort((a: any, b: any) => b.boundingBox.width * b.boundingBox.height - a.boundingBox.width * a.boundingBox.height)[0];
-            const bb = f.boundingBox;
-            return { x: Math.round(bb.x), y: Math.round(bb.y), w: Math.round(bb.width), h: Math.round(bb.height), conf: 0.84 } as FaceBox;
-          }
-        }
-      }
-    } catch {}
-    setDetectorKind("Heuristic fallback");
-    if (Math.abs(W - 512) < 8 && Math.abs(H - 512) < 8) return { x: 208, y: 178, w: 144, h: 212, conf: 0.80 } as FaceBox;
-    const s = Math.round(Math.min(W, H) * 0.45);
-    return { x: Math.round((W - s) / 2), y: Math.round((H - s) / 2.2), w: s, h: s, conf: 0.72 } as FaceBox;
-  }, []);
+  const setStep = (i: number, patch: Partial<Step>) => setSteps((s) => s.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+
+  const reset = () => { setSteps(INITIAL_STEPS); setCandidates([]); setChosen(null); setQueryUrl(null); setCanonical(null); setHash(null); setAnchoredAt(null); setVerifyState("idle"); setErr(null); };
 
   const handleFile = useCallback(async (f: File) => {
-    setErr(null); setVerifyState("idle"); setCandidates([]); setBest(null); setHash(null); setTx(null); setOnChainHash(null); setCanonical(null); setImageSha256(null);
-    setFile(f);
-    const url = URL.createObjectURL(f);
-    setPreview(url);
-    setSteps((s) => s.map((x, i) => i === 0 ? { ...x, status: "done", detail: `${(f.size / 1024).toFixed(1)} KB` } : { ...x, status: "idle", detail: undefined }));
+    reset(); setFile(f); setFaceBox(null);
+    setPreview(URL.createObjectURL(f));
+    setStep(0, { status: "done", detail: `${f.name} · ${(f.size / 1024).toFixed(1)} KB` });
+    try { setImageSha(await sha256Hex(await f.arrayBuffer())); } catch { setImageSha(null); }
   }, []);
 
   useEffect(() => {
     if (!preview || !imgRef.current) return;
     const img = imgRef.current;
-    const doRun = async () => {
-      if (!img.complete) await new Promise<void>((res) => { img.onload = () => res(); img.onerror = () => res(); });
-      setSteps((s) => s.map((x, i) => i === 1 ? { ...x, status: "run", detail: detectorKind } : x));
-      const box = await runDetection(img, canvasRef.current);
-      setFaceBox(box);
-      if (!box) {
-        setSteps((s) => s.map((x, i) => i === 1 ? { ...x, status: "err", detail: "No face" } : x));
-        setErr("No face detected — try a clearer front-facing portrait.");
+    (async () => {
+      if (!img.complete) await new Promise<void>((r) => { img.onload = () => r(); img.onerror = () => r(); });
+      setImgNatural({ w: img.naturalWidth, h: img.naturalHeight });
+      setStep(1, { status: "run" });
+      let box: FaceBox | null | "unsupported" = null;
+      try { box = await detectFace(img); } catch { box = "unsupported"; }
+      if (box === "unsupported") {
+        setDetector("FaceDetector API unavailable in this browser");
+        setFaceBox(null);
+        setStep(1, { status: "skip", detail: "no FaceDetector API — CLI uses InsightFace" });
         return;
       }
-      setSteps((s) => s.map((x, i) => {
-        if (i === 1) return { ...x, status: "done", detail: `1 face  (${box.x},${box.y},${box.w},${box.h})  ${box.conf.toFixed(2)}` };
-        if (i === 2) return { ...x, status: "done", detail: `512-D · L2 1.000 · ${detectorKind}` };
-        return x;
-      }));
-      try {
-        const buf = await file!.arrayBuffer();
-        const d = await crypto.subtle.digest("SHA-256", buf);
-        setImageSha256(Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, "0")).join(""));
-      } catch {}
-    };
-    doRun();
-  }, [preview, runDetection, detectorKind, file]);
+      setDetector("Browser FaceDetector (native)");
+      setFaceBox(box);
+      if (!box) { setStep(1, { status: "err", detail: "no face found" }); setErr("No face detected — try a clearer front-facing portrait."); return; }
+      setStep(1, { status: "done", detail: `1 face · (${box.x},${box.y},${box.w}×${box.h})` });
+    })();
+  }, [preview]);
 
-  async function runVerifyFlow() {
-    if (!file || !faceBox || !preview) { setErr("Upload a face image first."); return; }
-    setBusy(true); setErr(null); setVerifyState("idle");
+  async function run() {
+    if (!file) { setErr("Choose an image first."); return; }
+    if (!/^https?:\/\//.test(imageUrl)) { setErr("Enter a public URL of this image (reverse search needs a URL)."); return; }
+    setBusy(true); setErr(null); setVerifyState("idle"); setCanonical(null); setHash(null); setAnchoredAt(null);
     try {
-      setSteps((s) => s.map((x, i) => i === 3 ? { ...x, status: "run", detail: "fetching /api/search…" } : x));
-      const r = await fetch(`/api/search?q=${encodeURIComponent("portrait face")}&max=6`, { cache: "no-store" });
+      setStep(2, { status: "run", detail: "Yandex CBIR via /api/search" });
+      const r = await fetch(`/api/search?image_url=${encodeURIComponent(imageUrl)}&max=10`, { cache: "no-store" });
       const j = await r.json();
-      setProvider(j.provider || "bing_scrape");
-      const results: Candidate[] = (j.results || []).slice(0, 6);
-      if (!results.length) throw new Error("Search returned no candidates.");
-      setSteps((s) => s.map((x, i) => i === 3 ? { ...x, status: "done", detail: `${j.provider} · ${results.length} candidates` } : x));
+      setQueryUrl(j.query || null);
+      if (!r.ok) throw new Error(j.error || `search failed (${r.status})`);
+      const results: Candidate[] = j.results || [];
+      if (!results.length) throw new Error("No page on the web contains this image (0 results). Try another public image URL.");
+      setStep(2, { status: "done", detail: `${results.length} page(s) contain this image` });
 
-      setSteps((s) => s.map((x, i) => i === 4 ? { ...x, status: "run", detail: "face-compare…" } : x));
-      const scored: Candidate[] = await Promise.all(results.map(async (c, idx) => {
-        let sim: number;
-        const isLena = c.image_url.includes("lena") || c.image_url.includes("Lena");
-        if (isLena) sim = 1.0 - idx * 0.04;
-        else sim = Math.max(0.22, 0.78 - idx * 0.11 + (Math.random() * 0.06 - 0.03));
-        sim = Math.min(1, Math.max(0, sim));
-        let fb: FaceBox | null = { x: 0, y: 0, w: 0, h: 0, conf: 0.6 };
+      setStep(3, { status: "run", detail: "FaceDetector on each candidate" });
+      const checked: Candidate[] = await Promise.all(results.map(async (c) => {
         try {
-          if ((window as any).FaceDetector) {
-            const im = await loadImage(c.thumbnail || c.image_url);
-            const cv = document.createElement("canvas");
-            cv.width = im.naturalWidth; cv.height = im.naturalHeight;
-            cv.getContext("2d")!.drawImage(im, 0, 0);
-            const det = new (window as any).FaceDetector({ fastMode: true });
-            const faces: any[] = await det.detect(cv);
-            if (faces?.length) {
-              const b = faces[0].boundingBox;
-              fb = { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), conf: 0.7 };
-            } else fb = null;
-          }
-        } catch { fb = null; }
-        return { ...c, similarity: sim, faceBox: fb };
+          const im = await loadImage(c.image_url || c.thumbnail);
+          const box = await detectFace(im);
+          return { ...c, face: box === "unsupported" ? "unknown" : box ? "yes" : "no" } as Candidate;
+        } catch { return { ...c, face: "unknown" } as Candidate; }
       }));
-      const withFace = scored.filter((c) => c.faceBox !== null);
-      const ranked = (withFace.length ? withFace : scored).sort((a, b) => (b.similarity! - a.similarity!));
-      const passes = ranked.filter((c) => (c.similarity ?? 0) >= threshold);
-      const chosen = passes[0] || ranked[0];
-      setCandidates(ranked); setBest(chosen || null);
-      setSteps((s) => s.map((x, i) => i === 4 ? { ...x, status: "done", detail: chosen ? `${(chosen.similarity! * 100).toFixed(1)}% · ${chosen.source} ${chosen.similarity! >= threshold ? "✓" : "best"}` : "none" } : x));
-      if (!chosen) throw new Error("No candidate.");
+      const withFace = checked.filter((c) => c.face === "yes");
+      const pick = withFace[0] || checked[0];
+      setCandidates(checked); setChosen(pick);
+      setStep(3, { status: "done", detail: `${withFace.length} with a face · ${checked.filter((c) => c.face === "unknown").length} unreadable (CORS)` });
 
-      setSteps((s) => s.map((x, i) => i === 5 ? { ...x, status: "run", detail: "hash → chain" } : x));
-      const canon: Record<string, string> = {
-        author: "", caption: "", image_sha256: imageSha256 || "", image_url: chosen.image_url,
-        platform: chosen.source, post_url: chosen.url, published_at: "", title: chosen.title,
-      };
-      setCanonical(canon);
-      const h = await sha256Hex(canon);
-      setHash(h);
-      const contract = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
-      const block = Math.floor(Date.now() / 1000) % 9000 + 2;
-      const txHash = "0x" + h.slice(0, 40) + h.slice(40, 48);
-      const ts = Math.floor(Date.now() / 1000);
-      try {
-        const key = "veritrace_records";
-        const ex = JSON.parse(localStorage.getItem(key) || "{}");
-        ex[h] = { dataHash: "0x" + h, txHash, block, contract, ts, canonical: canon, provider: j.provider, similarity: chosen.similarity };
-        ex["latest"] = h;
-        localStorage.setItem(key, JSON.stringify(ex));
-      } catch {}
-      setTx({ hash: txHash, block, contract, ts }); setOnChainHash("0x" + h); setVerifyState("verified");
-      setSteps((s) => s.map((x, i) => i === 5 ? { ...x, status: "done", detail: `0x${h.slice(0, 8)}…  tx ${txHash.slice(0, 10)}… #${block}` } : x));
+      await fingerprint(pick, "");
     } catch (e: any) {
       setErr(e?.message || String(e));
-      setSteps((s) => s.map((x) => x.status === "run" ? { ...x, status: "err", detail: e?.message } : x));
+      setSteps((s) => s.map((x) => (x.status === "run" ? { ...x, status: "err", detail: e?.message } : x)));
     } finally { setBusy(false); }
   }
-  function loadImage(src: string): Promise<HTMLImageElement> {
-    return new Promise((res, rej) => { const im = new Image(); im.crossOrigin = "anonymous"; im.onload = () => res(im); im.onerror = rej; im.src = src; });
+
+  async function fingerprint(pick: Candidate, caption: string) {
+    setStep(4, { status: "run" });
+    const canon: Record<string, string> = {
+      author: "", caption: caption || pick.description || "", image_sha256: imageSha || "", image_url: pick.image_url,
+      platform: pick.source, post_url: pick.url, published_at: "", title: pick.title,
+    };
+    const h = await sha256Hex(canonicalJson(canon));
+    setCanonical(canon); setHash(h);
+    setStep(4, { status: "done", detail: `0x${short(h)}` });
+    setStep(5, { status: "run" });
+    const ledger = readLedger();
+    const at = ledger[h]?.anchoredAt || Date.now();
+    ledger[h] = { canonical: canon, anchoredAt: at };
+    writeLedger(ledger);
+    setAnchoredAt(at); setVerifyState("verified");
+    setStep(5, { status: "done", detail: ledger[h] && at !== Date.now() ? "already in ledger" : "stored in localStorage" });
   }
-  async function reverify(tampered = false) {
-    if (!hash || !canonical) { setErr("Run verification first."); return; }
-    const cur = tampered ? { ...canonical, caption: tamperCaption || "tampered " + new Date().toISOString() } : { ...canonical };
-    const curHash = await sha256Hex(cur);
-    const on = onChainHash || ("0x" + hash);
-    setVerifyState(curHash === hash.replace(/^0x/, "") || ("0x" + curHash) === on ? "verified" : "tampered");
+
+  async function recheck(tampered: boolean) {
+    if (!canonical || !hash) return;
+    const cur = tampered ? { ...canonical, caption: tamperText || canonical.caption + " [edited]" } : canonical;
+    const h = await sha256Hex(canonicalJson(cur));
+    setVerifyState(readLedger()[h] ? "verified" : "tampered");
   }
+
   const onDrop = useCallback((e: React.DragEvent) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }, [handleFile]);
 
   return (
     <div className="min-h-screen bg-[#FFFBF2] text-[#1A1A18]">
-      <div className="pointer-events-none fixed inset-0 -z-10 opacity-[0.04]" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E")` }} />
-
       <div className="sticky top-0 z-30 pt-3 sm:pt-4">
         <nav className="mx-auto max-w-[1120px] px-4 sm:px-6">
           <div className="flex h-[56px] items-center justify-between rounded-full border border-[#E8E0D6] bg-white/80 px-2 pl-3 pr-2 shadow-[0_8px_30px_rgba(26,26,24,0.06)] backdrop-blur-xl">
@@ -211,70 +198,60 @@ export default function VerifyPage() {
       </div>
 
       <main className="mx-auto max-w-[1120px] px-4 sm:px-6 py-8">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-[#E8E0D6] bg-white px-3 py-1.5 text-xs font-medium text-[#8A817C] shadow-sm">
-              <span className="h-2 w-2 rounded-full bg-[#0E7C5A] animate-pulse" /> In-browser — no Python, no install
-            </div>
-            <h1 className="display mt-3 text-[32px] sm:text-[38px] font-bold tracking-tight leading-[0.95]">Upload a face → verify on chain</h1>
-            <p className="mt-2 max-w-[620px] text-sm leading-6 text-[#5A5753]">
-              Runs locally in your browser: <span className="font-semibold text-[#1A1A18]">FaceDetector</span> → embedding → live <span className="mono text-xs font-medium">/api/search</span> (Bing) → face-rank → canonical JSON → <span className="font-semibold">SHA-256</span> → <span className="font-semibold">VerificationRegistry</span>. Nothing leaves your device except the search fetch.
-            </p>
-          </div>
-          <label className="flex items-center gap-3 rounded-full border border-[#E8E0D6] bg-white px-4 py-2 text-sm shadow-sm">
-            <span className="text-xs font-medium text-[#8A817C]">Threshold</span>
-            <input type="range" min={0.3} max={0.9} step={0.05} value={threshold} onChange={(e) => setThreshold(parseFloat(e.target.value))} className="accent-[#0E7C5A]" />
-            <span className="mono text-sm font-semibold">{threshold.toFixed(2)}</span>
-          </label>
+        <div className="inline-flex items-center gap-2 rounded-full border border-[#E8E0D6] bg-white px-3 py-1.5 text-xs font-medium text-[#8A817C] shadow-sm">
+          <span className="h-2 w-2 rounded-full bg-[#0E7C5A] animate-pulse" /> Browser showcase — real search, real hashing, simulated ledger
         </div>
+        <h1 className="display mt-3 text-[32px] sm:text-[38px] font-bold tracking-tight leading-[0.95]">Face → where it appears on the web → fingerprint</h1>
+        <p className="mt-2 max-w-[720px] text-sm leading-6 text-[#5A5753]">
+          The search step calls Yandex reverse-image search for the public URL you enter, so every candidate below is a page that really contains that image.
+          Hashing is the same canonical SHA-256 the CLI anchors on-chain. The blockchain itself is CLI-only — this page keeps the fingerprint in a
+          <span className="font-semibold text-[#1A1A18]"> browser ledger</span> so you can still see tamper detection work.
+        </p>
 
         <div className="mt-6 grid lg:grid-cols-[380px_1fr] gap-5">
-          {/* left */}
           <div className="space-y-4">
             <div onDragOver={(e) => e.preventDefault()} onDrop={onDrop} className={`rounded-[24px] border-2 border-dashed bg-white p-4 shadow-sm ${file ? "border-[#0E7C5A]/30" : "border-[#E8E0D6]"}`}>
-              <div className="text-sm font-semibold">Drop a portrait</div>
-              <p className="mt-1 text-xs leading-5 text-[#8A817C]">Front-facing, 512×512 ideal. Try <span className="mono text-[#1A1A18]">samples/input.jpg</span> (Lena).</p>
+              <div className="text-sm font-semibold">1 · Drop a portrait</div>
+              <p className="mt-1 text-xs leading-5 text-[#8A817C]">Use an image that exists publicly (e.g. a Wikimedia portrait). The bundled sample is OpenCV&apos;s Lena.</p>
               <label className="mt-3 inline-flex cursor-pointer rounded-full bg-[#1A1A18] px-5 py-2.5 text-sm font-semibold text-white hover:bg-black">
                 Choose image
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
               </label>
-              {file && <div className="mt-2 mono text-xs text-[#5A5753]">{file.name} · {(file.size / 1024).toFixed(1)} KB</div>}
+              {file && <div className="mt-2 mono text-xs text-[#5A5753]">{file.name} · {(file.size / 1024).toFixed(1)} KB{imageSha ? ` · sha256 ${short(imageSha)}` : ""}</div>}
+            </div>
+
+            <div className="rounded-[24px] border border-[#E8E0D6] bg-white p-4 shadow-sm">
+              <div className="text-sm font-semibold">2 · Public URL of the same image</div>
+              <p className="mt-1 text-xs leading-5 text-[#8A817C]">Reverse-image engines need a URL. The CLI uploads for you; the browser page asks for one instead.</p>
+              <input value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://…/photo.jpg" className="mono mt-2 w-full rounded-2xl border border-[#E8E0D6] bg-[#FFFBF2] px-3 py-2 text-xs" />
+              <button onClick={() => setImageUrl(SAMPLE_URL)} className="mt-2 text-xs font-medium text-[#0E7C5A] underline">use sample URL</button>
               {err && <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{err}</div>}
             </div>
 
             <div className="rounded-[24px] border border-[#E8E0D6] bg-white p-3 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold">Preview</span>
-                <span className="mono text-[11px] text-[#8A817C]">{detectorKind}</span>
-              </div>
+              <div className="flex items-center justify-between"><span className="text-xs font-semibold">Preview</span><span className="mono text-[11px] text-[#8A817C]">{detector}</span></div>
               <div className="mt-3 relative overflow-hidden rounded-[20px] border border-[#E8E0D6] bg-[#FFFBF2] aspect-square grid place-items-center">
-                <canvas ref={canvasRef} className="hidden" />
                 {preview ? (
                   <div className="relative h-full w-full">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img ref={imgRef} src={preview} alt="input" className="h-full w-full object-contain" crossOrigin="anonymous" />
+                    <img ref={imgRef} src={preview} alt="input" className="h-full w-full object-contain" />
                     {faceBox && imgNatural && (
                       <div className="absolute rounded-[12px] border-[2.5px] border-[#0E7C5A] shadow-[0_0_0_4px_rgba(14,124,90,0.16)] pointer-events-none"
                         style={{ left: `${(faceBox.x / imgNatural.w) * 100}%`, top: `${(faceBox.y / imgNatural.h) * 100}%`, width: `${(faceBox.w / imgNatural.w) * 100}%`, height: `${(faceBox.h / imgNatural.h) * 100}%` }}>
-                        <span className="absolute -top-6 left-0 rounded-full bg-[#0E7C5A] px-2 py-0.5 text-[11px] font-bold text-white">face {faceBox.conf.toFixed(2)}</span>
+                        <span className="absolute -top-6 left-0 rounded-full bg-[#0E7C5A] px-2 py-0.5 text-[11px] font-bold text-white">face</span>
                       </div>
                     )}
                   </div>
                 ) : <span className="text-sm text-[#8A817C]">No image yet</span>}
               </div>
-              {faceBox && <div className="mono mt-2 text-xs text-[#8A817C]">({faceBox.x},{faceBox.y},{faceBox.w},{faceBox.h}) · {faceBox.conf.toFixed(2)} · 512-D</div>}
             </div>
 
-            <button onClick={runVerifyFlow} disabled={!file || !faceBox || busy}
-              className={`w-full rounded-full py-3.5 text-sm font-semibold ${!file || !faceBox || busy ? "bg-[#E8E0D6] text-[#8A817C] cursor-not-allowed" : "bg-[#0E7C5A] text-white hover:bg-[#0A5E45] shadow-[0_8px_20px_rgba(14,124,90,0.25)]"}`}>
-              {busy ? "Running…" : "Run verification → search + hash + chain"}
+            <button onClick={run} disabled={!file || busy}
+              className={`w-full rounded-full py-3.5 text-sm font-semibold ${!file || busy ? "bg-[#E8E0D6] text-[#8A817C] cursor-not-allowed" : "bg-[#0E7C5A] text-white hover:bg-[#0A5E45] shadow-[0_8px_20px_rgba(14,124,90,0.25)]"}`}>
+              {busy ? "Searching…" : "Run → search + face check + fingerprint"}
             </button>
-            <div className="rounded-2xl bg-[#F3EEE6] px-3 py-2 text-xs leading-5 text-[#8A817C]">
-              Live search via <span className="mono font-medium text-[#1A1A18]">/api/search</span> (Bing <span className="mono">murl</span>). Add <span className="mono">SERPAPI_API_KEY</span> on Vercel for true reverse-image.
-            </div>
           </div>
 
-          {/* right */}
           <div className="space-y-4">
             <div className="rounded-[24px] border border-[#E8E0D6] bg-white p-4 shadow-sm">
               <div className="text-sm font-semibold">Pipeline</div>
@@ -290,88 +267,60 @@ export default function VerifyPage() {
                   </div>
                 ))}
               </div>
-              <div className="mono mt-3 text-xs text-[#8A817C]">provider <span className="text-[#1A1A18] font-medium">{provider}</span> · threshold {threshold.toFixed(2)}</div>
+              {queryUrl && <a href={queryUrl} target="_blank" rel="noopener noreferrer" className="mono mt-3 block truncate text-xs text-[#0E7C5A] underline">open the live Yandex query ↗</a>}
             </div>
 
             {candidates.length > 0 && (
               <div className="rounded-[24px] border border-[#E8E0D6] bg-white p-4 shadow-sm">
-                <div className="text-sm font-semibold">Candidates — ranked</div>
+                <div className="flex items-center justify-between"><span className="text-sm font-semibold">Pages containing this image</span><span className="text-xs text-[#8A817C]">click to choose the post to fingerprint</span></div>
                 <div className="mt-3 grid gap-2">
-                  {candidates.map((c, i) => (
-                    <a key={i} href={c.url} target="_blank" rel="noopener noreferrer" className={`flex gap-3 rounded-[16px] border p-2.5 ${best?.image_url === c.image_url ? "border-[#1A1A18] bg-[#1A1A18] text-white" : "border-[#E8E0D6] bg-[#FFFBF2] hover:bg-white"}`}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={c.thumbnail || c.image_url} alt="" className="h-14 w-14 rounded-xl object-cover border border-black/5 bg-white" crossOrigin="anonymous" />
-                      <div className="min-w-0 flex-1">
-                        <div className={`text-sm font-semibold truncate ${best?.image_url === c.image_url ? "text-white" : "text-[#1A1A18]"}`}>{i === 0 ? "★ " : ""}{c.title}</div>
-                        <div className={`mono text-xs truncate ${best?.image_url === c.image_url ? "text-white/60" : "text-[#8A817C]"}`}>{c.source}</div>
-                        <div className={`mono text-xs font-bold mt-1 ${best?.image_url === c.image_url ? "text-white" : (c.similarity! >= threshold ? "text-[#0E7C5A]" : "text-[#8A817C]")}`}>{(c.similarity! * 100).toFixed(1)}% {c.similarity! >= threshold ? "· Match" : "· below"}</div>
-                      </div>
-                    </a>
-                  ))}
+                  {candidates.map((c, i) => {
+                    const active = chosen?.url === c.url;
+                    return (
+                      <button key={i} onClick={() => { setChosen(c); fingerprint(c, ""); }} className={`flex gap-3 rounded-[16px] border p-2.5 text-left ${active ? "border-[#1A1A18] bg-[#1A1A18] text-white" : "border-[#E8E0D6] bg-[#FFFBF2] hover:bg-white"}`}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={c.thumbnail || c.image_url} alt="" className="h-14 w-14 rounded-xl object-cover border border-black/5 bg-white" referrerPolicy="no-referrer" />
+                        <div className="min-w-0 flex-1">
+                          <div className={`text-sm font-semibold truncate ${active ? "text-white" : "text-[#1A1A18]"}`}>{c.title}</div>
+                          <a href={c.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className={`mono text-xs truncate block underline ${active ? "text-white/70" : "text-[#0E7C5A]"}`}>{c.url}</a>
+                          <div className={`mono text-xs mt-1 ${active ? "text-white/80" : "text-[#8A817C]"}`}>{c.source} · face: {c.face === "yes" ? "detected ✓" : c.face === "no" ? "none" : "unknown (CORS / no API)"}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-                {best && (
-                  <div className={`mt-3 rounded-[16px] border p-3 ${verifyState === "verified" ? "border-[#0E7C5A]/20 bg-[#0E7C5A]/5" : verifyState === "tampered" ? "border-red-200 bg-red-50" : "border-[#E8E0D6] bg-[#FFFBF2]"}`}>
-                    <div className="text-sm font-semibold">Best match — {best.source}</div>
-                    <a href={best.url} target="_blank" rel="noopener noreferrer" className="mono text-xs text-[#0E7C5A] underline break-all">{best.url}</a>
-                  </div>
-                )}
               </div>
             )}
 
-            {(hash || canonical) && (
+            {hash && canonical && (
               <div className="rounded-[24px] border border-[#E8E0D6] bg-[#1A1A18] p-4 shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
                 <div className="flex items-center gap-2">
                   <span className="grid h-7 w-7 place-items-center rounded-full bg-[#0E7C5A] text-white text-xs">⬡</span>
-                  <span className="text-sm font-semibold text-white">Proof ready</span>
-                  <span className="ml-auto rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white/70">Fingerprint anchored</span>
+                  <span className="text-sm font-semibold text-white">Fingerprint</span>
+                  <span className="ml-auto rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white/70">browser ledger · not a blockchain</span>
                 </div>
-
-                {hash && (
-                  <div className="mt-4 rounded-2xl bg-white p-4">
-                    <div className="text-xs font-semibold tracking-widest text-[#8A817C]">FINGERPRINT</div>
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="inline-flex rounded-full bg-[#1A1A18] px-3 py-1.5 text-sm font-bold text-white tracking-wide">{shortHash(hash)}</span>
-                      <span className="text-xs text-[#8A817C]">SHA-256 of the verified match</span>
-                    </div>
-                    <div className="mt-2 h-1.5 w-full rounded-full bg-[#F3EEE6] overflow-hidden">
-                      <div className="h-full w-[92%] rounded-full bg-[#0E7C5A]" />
-                    </div>
-                  </div>
-                )}
-
-                {tx && (
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-3 text-center">
-                      <div className="text-[11px] font-semibold tracking-widest text-white/50">TRANSACTION</div>
-                      <div className="mt-1 text-xs font-semibold text-white truncate">{tx.hash.slice(0, 12)}…</div>
-                    </div>
-                    <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-3 text-center">
-                      <div className="text-[11px] font-semibold tracking-widest text-white/50">BLOCK</div>
-                      <div className="mt-1 text-xs font-semibold text-white">#{tx.block}</div>
-                    </div>
-                    <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-3 text-center">
-                      <div className="text-[11px] font-semibold tracking-widest text-white/50">STATUS</div>
-                      <div className="mt-1 text-xs font-bold text-[#7ED8BF]">Anchored</div>
-                    </div>
-                  </div>
-                )}
-
+                <div className="mt-4 rounded-2xl bg-white p-4">
+                  <div className="text-xs font-semibold tracking-widest text-[#8A817C]">SHA-256 (canonical JSON)</div>
+                  <div className="mono mt-2 break-all text-sm font-bold">0x{hash}</div>
+                  <details className="mt-2 text-xs text-[#5A5753]"><summary className="cursor-pointer">canonical record</summary><pre className="mono mt-1 whitespace-pre-wrap break-all text-[11px]">{canonicalJson(canonical)}</pre></details>
+                  {anchoredAt && <div className="mono mt-2 text-[11px] text-[#8A817C]">anchored in this browser at {new Date(anchoredAt).toISOString()}</div>}
+                </div>
                 {verifyState !== "idle" && (
                   <div className={`mt-3 rounded-full px-4 py-3 text-sm font-bold text-center ${verifyState === "verified" ? "bg-[#0E7C5A] text-white" : "bg-[#E85D04] text-white"}`}>
-                    {verifyState === "verified" ? "✓ VERIFIED — fingerprint matches on-chain record" : "✗ TAMPERED — fingerprint does not match"}
+                    {verifyState === "verified" ? "✓ VERIFIED — recomputed fingerprint is in the ledger" : "✗ TAMPERED — recomputed fingerprint is not in the ledger"}
                   </div>
                 )}
-
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <button onClick={() => reverify(false)} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#1A1A18]">Re-check</button>
-                  <input value={tamperCaption} onChange={(e) => setTamperCaption(e.target.value)} placeholder="add a note to simulate tamper…" className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-white placeholder:text-white/40 w-52" />
-                  <button onClick={() => reverify(true)} className="rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">Simulate tamper →</button>
+                  <button onClick={() => recheck(false)} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#1A1A18]">Re-check</button>
+                  <input value={tamperText} onChange={(e) => setTamperText(e.target.value)} placeholder="edit the caption to simulate tamper…" className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-white placeholder:text-white/40 w-64" />
+                  <button onClick={() => recheck(true)} className="rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">Simulate tamper →</button>
                 </div>
               </div>
             )}
 
             <div className="rounded-[24px] border border-[#E8E0D6] bg-white p-4 text-sm leading-6 text-[#8A817C] shadow-sm">
-              <span className="font-semibold text-[#1A1A18]">No Python needed.</span> Everything above runs in your browser (Canvas + FaceDetector, <span className="mono text-xs">crypto.subtle</span>). For the audited Python + Solidity trace, see <a href="https://github.com/vardhan23v/VeriTrace" target="_blank" rel="noopener noreferrer" className="font-medium text-[#0E7C5A] underline">GitHub</a> → <span className="mono text-xs">python main.py identify</span>.
+              <span className="font-semibold text-[#1A1A18]">For the real thing</span> — ArcFace similarity scores, the Solidity VerificationRegistry, transaction hashes and on-chain re-verification — run the CLI:
+              <span className="mono ml-1 text-xs text-[#1A1A18]">python main.py demo --image samples/input.jpg</span>. Source on <a href="https://github.com/vardhan23v/VeriTrace" target="_blank" rel="noopener noreferrer" className="font-medium text-[#0E7C5A] underline">GitHub</a>.
             </div>
           </div>
         </div>
@@ -379,8 +328,8 @@ export default function VerifyPage() {
 
       <footer className="mx-auto max-w-[1120px] px-4 sm:px-6 py-8 border-t border-[#E8E0D6] mt-2">
         <div className="flex flex-col sm:flex-row justify-between gap-2 text-xs text-[#8A817C]">
-          <span>© VeriTrace — HH Goa 2026 Task 3 · <Link href="/about" className="underline decoration-[#E8E0D6] hover:text-[#1A1A18]">About</Link> · <Link href="/verify" className="font-medium text-[#0E7C5A]">Verify</Link></span>
-          <span className="mono">Lena — OpenCV sample (permissive) · not a private individual</span>
+          <span>© VeriTrace — HH Goa 2026 Task 3 · <Link href="/about" className="underline decoration-[#E8E0D6] hover:text-[#1A1A18]">About</Link></span>
+          <span className="mono">demo images are public / permissive · not for identifying private individuals</span>
         </div>
       </footer>
     </div>
