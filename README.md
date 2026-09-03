@@ -6,18 +6,18 @@
 
 *Detect a face, find where it appears on the web, anchor a tamper-evident fingerprint on-chain, and prove it later.*
 
-[![CI](https://img.shields.io/github/actions/workflow/status/vardhan23v/VeriTrace/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white)](https://github.com/vardhan23v/VeriTrace/actions)
-[![Tests](https://img.shields.io/badge/tests-35%20passing-brightgreen?logo=pytest&logoColor=white)](#testing)
-[![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/downloads/)
-[![Solidity](https://img.shields.io/badge/solidity-0.8.20-363636?logo=solidity&logoColor=white)](contracts/VerificationRegistry.sol)
-[![web3.py](https://img.shields.io/badge/web3.py-7.x-F16822?logo=ethereum&logoColor=white)](https://web3py.readthedocs.io/)
-[![InsightFace](https://img.shields.io/badge/InsightFace-ArcFace%20512--D-8A2BE2)](https://github.com/deepinsight/insightface)
-[![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-CPU-005CED?logo=onnx&logoColor=white)](https://onnxruntime.ai/)
-[![Next.js](https://img.shields.io/badge/showcase-Next.js%2015-000000?logo=nextdotjs&logoColor=white)](https://veritrace-dusky.vercel.app)
-[![Deployed on Vercel](https://img.shields.io/badge/deployed-vercel-000000?logo=vercel&logoColor=white)](https://veritrace-dusky.vercel.app)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/vardhan23v/VeriTrace/pulls)
+<a href="https://github.com/vardhan23v/VeriTrace/actions"><img src="https://img.shields.io/github/actions/workflow/status/vardhan23v/VeriTrace/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white&style=for-the-badge" height="28" alt="CI" /></a>
+<a href="#testing"><img src="https://img.shields.io/badge/tests-35%20passing-brightgreen?logo=pytest&logoColor=white&style=for-the-badge" height="28" alt="Tests" /></a>
+<a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white&style=for-the-badge" height="28" alt="Python" /></a>
+<a href="contracts/VerificationRegistry.sol"><img src="https://img.shields.io/badge/solidity-0.8.20-363636?logo=solidity&logoColor=white&style=for-the-badge" height="28" alt="Solidity" /></a>
+<a href="https://web3py.readthedocs.io/"><img src="https://img.shields.io/badge/web3.py-7.x-F16822?logo=ethereum&logoColor=white&style=for-the-badge" height="28" alt="web3.py" /></a>
+<a href="https://github.com/deepinsight/insightface"><img src="https://img.shields.io/badge/InsightFace-ArcFace%20512--D-8A2BE2?style=for-the-badge" height="28" alt="InsightFace" /></a>
+<a href="https://onnxruntime.ai/"><img src="https://img.shields.io/badge/ONNX%20Runtime-CPU-005CED?logo=onnx&logoColor=white&style=for-the-badge" height="28" alt="ONNX Runtime" /></a>
+<a href="https://veritrace-dusky.vercel.app"><img src="https://img.shields.io/badge/showcase-Next.js%2015-000000?logo=nextdotjs&logoColor=white&style=for-the-badge" height="28" alt="Next.js" /></a>
+<a href="https://veritrace-dusky.vercel.app"><img src="https://img.shields.io/badge/deployed-vercel-000000?logo=vercel&logoColor=white&style=for-the-badge" height="28" alt="Deployed on Vercel" /></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge" height="28" alt="License: MIT" /></a>
+<a href="https://docs.astral.sh/ruff/"><img src="https://img.shields.io/badge/code%20style-ruff-D7FF64?logo=ruff&logoColor=black&style=for-the-badge" height="28" alt="Code style: ruff" /></a>
+<a href="https://github.com/vardhan23v/VeriTrace/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge" height="28" alt="PRs Welcome" /></a>
 
 [**Live showcase**](https://veritrace-dusky.vercel.app) · [**Quick start**](#quick-start) · [**Commands**](#commands) · [**Example run**](#example-run) · [**Limitations**](#known-limitations)
 
