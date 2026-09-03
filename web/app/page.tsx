@@ -27,6 +27,8 @@ export default function Page() {
             <span className="hidden sm:inline text-xs px-2 py-0.5 rounded-full border border-white/10 text-zinc-400">HH Goa 2026 — Task 3</span>
           </div>
           <div className="flex items-center gap-2">
+            <a href="/about" className="hidden sm:inline-flex text-xs text-zinc-400 hover:text-white px-3 py-1.5 rounded-full border border-white/10">About</a>
+            <a href="/verify" className="hidden sm:inline-flex text-xs text-emerald-300 hover:text-emerald-200 px-3 py-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10">Verify →</a>
             <a href="https://github.com/vardhan23v/VeriTrace" target="_blank" className="hidden sm:inline-flex text-xs text-zinc-400 hover:text-white px-3 py-1.5 rounded-full border border-white/10">GitHub →</a>
             <a href="#cli" className="text-xs bg-white text-black px-4 py-1.5 rounded-full font-medium hover:bg-zinc-200">Run CLI</a>
           </div>
@@ -50,7 +52,8 @@ export default function Page() {
         </p>
 
         <div className="mt-6 flex flex-wrap gap-2">
-          <a href="#cli" className="inline-flex items-center gap-2 bg-emerald-400 text-black text-sm px-4 py-2 rounded-full font-semibold">Start verification <span>→</span></a>
+          <a href="/verify" className="inline-flex items-center gap-2 bg-emerald-400 text-black text-sm px-4 py-2 rounded-full font-semibold">Verify in browser — no Python →</a>
+          <a href="#cli" className="inline-flex items-center gap-2 border border-white/10 text-sm px-4 py-2 rounded-full hover:bg-white/5">Run CLI</a>
           <a href="https://github.com/vardhan23v/VeriTrace" target="_blank" className="inline-flex items-center gap-2 border border-white/10 text-sm px-4 py-2 rounded-full hover:bg-white/5">View contract on GitHub</a>
           <span className="inline-flex items-center text-xs text-zinc-500 px-2">Python 3.12 • Solidity 0.8.20 • Web3.py • InsightFace</span>
         </div>
@@ -215,7 +218,7 @@ python -m pytest -v`}</pre>
       {/* footer */}
       <footer className="mx-auto max-w-6xl px-5 py-10 border-t border-white/5 mt-4">
         <div className="flex flex-col sm:flex-row justify-between gap-3 text-xs text-zinc-500">
-          <span>© VeriTrace — HH Goa 2026 Task 3 • MIT • Python 3.12 • Solidity 0.8.20</span>
+          <span>© VeriTrace — HH Goa 2026 Task 3 • MIT • Python 3.12 • Solidity 0.8.20 · <a href="/about" className="underline decoration-white/15 hover:text-zinc-300">About</a> · <a href="/verify" className="underline decoration-emerald-400/20 text-emerald-300 hover:text-emerald-200">Verify in browser</a></span>
           <span className="font-mono">samples/input.jpg — OpenCV Lena (permissive) • not a private individual</span>
         </div>
       </footer>
