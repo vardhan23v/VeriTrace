@@ -1,0 +1,50 @@
+# Environment
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Dependencies
+node_modules/
+npm-debug.log*
+
+# Blockchain artifacts
+*.abi
+*.bin
+cache/
+artifacts/
+out/
+data/records/*.json
+!data/records/.gitkeep
+data/blockchain.json
+data/latest_record.json
+
+# Images & downloads (keep samples/input.jpg tracked for demo)
+data/candidates/
+samples/user*.jpg
+samples/user*.png
+*.log
+
+# Models (InsightFace downloads ~100MB)
+models/
+~/.insightface/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+.next/
+web/.next/
+web/out/
