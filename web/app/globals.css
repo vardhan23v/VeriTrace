@@ -1,8 +1,16 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,ital,wght@9..144,0,700;9..144,1,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-* { scrollbar-width: thin; scrollbar-color: #2a2a35 #0a0a0f; }
+:root { color-scheme: light; }
+* { font-variant-ligatures: common-ligatures; }
+html { scroll-behavior: smooth; }
+body { font-family: Inter, system-ui, -apple-system, sans-serif; }
+.mono { font-family: "JetBrains Mono", monospace; }
+.display { font-family: Fraunces, Georgia, serif; }
+
+* { scrollbar-width: thin; scrollbar-color: #d6cfc2 #fffaf2; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-thumb { background: #2a2a35; border-radius: 999px; }
-::-webkit-scrollbar-track { background: #0a0a0f; }
+::-webkit-scrollbar-thumb { background: #d6cfc2; border-radius: 999px; }
+::-webkit-scrollbar-track { background: #fffaf2; }

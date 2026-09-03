@@ -1,155 +1,258 @@
 "use client";
+import Link from "next/link";
 import { useState } from "react";
 
-const PIPELINE = [
-  { n: "01", t: "Face Detection", d: "InsightFace buffalo_l — ArcFace 512-D, 0.80 conf", code: "detector.py" },
-  { n: "02", t: "Visual Search", d: "SerpAPI Google Lens / Bing Visual / BingScrape (free)", code: "search/provider.py" },
-  { n: "03", t: "Candidate Verify", d: "Download → re-detect → cosine similarity → rank", code: "matcher.py" },
-  { n: "04", t: "Canonical + Hash", d: "Sorted JSON → UTF-8 → SHA-256 (32-byte)", code: "canonicalizer.py" },
-  { n: "05", t: "Blockchain", d: "VerificationRegistry.sol → storeRecord()", code: "VerificationRegistry.sol" },
-  { n: "06", t: "Verify", d: "Recalc hash vs on-chain → VERIFIED / TAMPERED", code: "pipeline.py" },
+const STEPS = [
+  { n: "01", title: "Face Detection", desc: "Browser FaceDetector + InsightFace fallback. ArcFace 512-D, L2-normalized.", tag: "detector.py" },
+  { n: "02", title: "Visual Search", desc: "Live Bing scrape via /api/search — real murl extraction. SerpAPI Lens when key set.", tag: "search" },
+  { n: "03", title: "Candidate Verify", desc: "Download candidates → re-detect faces → cosine similarity → rank.", tag: "matcher.py" },
+  { n: "04", title: "Canonical + Hash", desc: "Sorted JSON → UTF-8 → SHA-256. Deterministic, no PII on-chain.", tag: "canonicalizer" },
+  { n: "05", title: "Blockchain", desc: "VerificationRegistry.storeRecord(bytes32) — eth-tester / Ganache / Anvil.", tag: "solidity" },
+  { n: "06", title: "Verify", desc: "Re-hash vs on-chain → VERIFIED / TAMPERED. One command.", tag: "pipeline.py" },
 ];
 
 export default function Page() {
   const [active, setActive] = useState(0);
-  return (
-    <div className="min-h-screen bg-[#08080c] text-zinc-100">
-      {/* grid bg */}
-      <div className="fixed inset-0 -z-10 bg-[linear-gradient(to_right,#1a1a24_1px,transparent_1px),linear-gradient(to_bottom,#1a1a24_1px,transparent_1px)] bg-[size:48px_48px] opacity-[0.35]" />
-      <div className="fixed inset-0 -z-10 bg-gradient-to-b from-transparent via-transparent to-[#08080c]" />
 
-      {/* nav */}
-      <nav className="sticky top-0 z-30 backdrop-blur-xl bg-[#08080c]/70 border-b border-white/5">
-        <div className="mx-auto max-w-6xl px-5 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-400 grid place-items-center text-black font-black text-xs">V</div>
-            <span className="font-semibold tracking-tight">VeriTrace</span>
-            <span className="hidden sm:inline text-xs px-2 py-0.5 rounded-full border border-white/10 text-zinc-400">HH Goa 2026 — Task 3</span>
+  return (
+    <div className="min-h-screen bg-[#FFFBF2] text-[#1A1A18]">
+      {/* soft paper texture */}
+      <div className="pointer-events-none fixed inset-0 -z-10 opacity-[0.04]" style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E")` }} />
+
+      {/* nav — floating pill */}
+      <div className="sticky top-0 z-30 pt-3 sm:pt-4">
+        <nav className="mx-auto max-w-[1120px] px-4 sm:px-6">
+          <div className="flex h-[56px] items-center justify-between rounded-full border border-[#E8E0D6] bg-white/80 px-2 pl-3 pr-2 shadow-[0_8px_30px_rgba(26,26,24,0.06)] backdrop-blur-xl">
+            <Link href="/" className="flex items-center gap-3">
+              <span className="grid h-9 w-9 place-items-center rounded-full bg-[#1A1A18] text-white text-[13px] font-bold tracking-tight">◐</span>
+              <span className="text-[15px] font-semibold tracking-tight">VeriTrace</span>
+              <span className="hidden sm:inline-flex items-center rounded-full bg-[#F3EEE6] px-2.5 py-1 text-[11px] font-medium tracking-wide text-[#8A817C]">HH GOA 2026 — TASK 3</span>
+            </Link>
+            <div className="flex items-center gap-1.5">
+              <Link href="/about" className="hidden sm:inline-flex rounded-full px-4 py-2 text-sm font-medium text-[#5A5753] hover:bg-[#F3EEE6] hover:text-[#1A1A18]">About</Link>
+              <Link href="/verify" className="hidden sm:inline-flex rounded-full bg-[#0E7C5A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0A5E45]">Verify →</Link>
+              <a href="https://github.com/vardhan23v/VeriTrace" target="_blank" rel="noopener noreferrer" className="hidden sm:inline-flex rounded-full border border-[#E8E0D6] px-4 py-2 text-sm font-medium hover:bg-[#F3EEE6]">GitHub</a>
+              <Link href="/verify" className="inline-flex sm:hidden rounded-full bg-[#1A1A18] px-4 py-2 text-sm font-semibold text-white">Verify</Link>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <a href="/about" className="hidden sm:inline-flex text-xs text-zinc-400 hover:text-white px-3 py-1.5 rounded-full border border-white/10">About</a>
-            <a href="/verify" className="hidden sm:inline-flex text-xs text-emerald-300 hover:text-emerald-200 px-3 py-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/10">Verify →</a>
-            <a href="https://github.com/vardhan23v/VeriTrace" target="_blank" className="hidden sm:inline-flex text-xs text-zinc-400 hover:text-white px-3 py-1.5 rounded-full border border-white/10">GitHub →</a>
-            <a href="#cli" className="text-xs bg-white text-black px-4 py-1.5 rounded-full font-medium hover:bg-zinc-200">Run CLI</a>
-          </div>
-        </div>
-      </nav>
+        </nav>
+      </div>
 
       {/* hero */}
-      <section className="mx-auto max-w-6xl px-5 pt-10 pb-8">
-        <div className="inline-flex items-center gap-2 text-[11px] tracking-widest uppercase text-emerald-300/80 border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 rounded-full">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Production PoC • Real Search • Real Chain
-        </div>
-        <h1 className="mt-4 text-4xl sm:text-5xl font-black tracking-tighter leading-[0.9] max-w-3xl">
-          Face identification
-          <span className="bg-gradient-to-r from-emerald-300 to-cyan-300 bg-clip-text text-transparent"> → web discovery</span>
-          <br />→ blockchain verification.
-        </h1>
-        <p className="mt-4 max-w-2xl text-sm leading-6 text-zinc-400">
-          Input a face → InsightFace detection + ArcFace embedding → <span className="text-zinc-200">genuine visual search</span> (SerpAPI Lens / Bing) → candidate face-compare →
-          canonical JSON → SHA-256 → <span className="text-zinc-200">Solidity VerificationRegistry</span> on eth-tester / Ganache → VERIFIED / TAMPERED.
-          No mocks. No hard-coded posts.
-        </p>
-
-        <div className="mt-6 flex flex-wrap gap-2">
-          <a href="/verify" className="inline-flex items-center gap-2 bg-emerald-400 text-black text-sm px-4 py-2 rounded-full font-semibold">Verify in browser — no Python →</a>
-          <a href="#cli" className="inline-flex items-center gap-2 border border-white/10 text-sm px-4 py-2 rounded-full hover:bg-white/5">Run CLI</a>
-          <a href="https://github.com/vardhan23v/VeriTrace" target="_blank" className="inline-flex items-center gap-2 border border-white/10 text-sm px-4 py-2 rounded-full hover:bg-white/5">View contract on GitHub</a>
-          <span className="inline-flex items-center text-xs text-zinc-500 px-2">Python 3.12 • Solidity 0.8.20 • Web3.py • InsightFace</span>
-        </div>
-
-        {/* live chain badge */}
-        <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { k: "Face conf", v: "0.80", sub: "Lena 208,178→352,390" },
-            { k: "Similarity", v: "100.00%", sub: "Face Similarity Match: YES" },
-            { k: "Fingerprint", v: "7a63a2…3676", sub: "SHA-256(canonical)" },
-            { k: "On-chain", v: "Block #2", sub: "0x5FbDB…aa3 • VERIFIED" },
-          ].map((x) => (
-            <div key={x.k} className="rounded-2xl border border-white/5 bg-white/[0.04] p-3 backdrop-blur">
-              <div className="text-[10px] tracking-widest uppercase text-zinc-500">{x.k}</div>
-              <div className="text-sm font-mono font-semibold mt-1">{x.v}</div>
-              <div className="text-[11px] text-zinc-500 truncate">{x.sub}</div>
+      <section className="mx-auto max-w-[1120px] px-4 sm:px-6 pt-10 sm:pt-14 pb-8">
+        <div className="grid lg:grid-cols-[1.05fr_0.95fr] gap-8 lg:gap-10 items-start">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-[#E8E0D6] bg-white px-3 py-1.5 text-xs font-medium text-[#8A817C] shadow-sm">
+              <span className="h-2 w-2 rounded-full bg-[#0E7C5A] animate-pulse" />
+              No Python needed — verify directly in your browser
+              <span className="hidden sm:inline text-[#D6CFC2]">•</span>
+              <span className="hidden sm:inline">Real search • Real hash • Real chain</span>
             </div>
-          ))}
-        </div>
-      </section>
 
-      {/* architecture */}
-      <section className="mx-auto max-w-6xl px-5 py-8">
-        <div className="rounded-[20px] border border-white/5 bg-white/[0.03] overflow-hidden">
-          <div className="p-5 sm:p-6 flex flex-col lg:flex-row gap-6">
-            <div className="flex-1">
-              <h2 className="text-sm font-semibold tracking-tight">Architecture</h2>
-              <p className="text-xs text-zinc-500 mt-1">Modular, provider-abstracted, secrets in env. Eth-tester by default, Ganache/Anvil when RPC_URL is set.</p>
-              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {PIPELINE.map((s, i) => (
-                  <button
-                    key={s.n}
-                    onClick={() => setActive(i)}
-                    className={`text-left rounded-xl border p-3 transition ${active === i ? "bg-white text-black border-white" : "bg-white/[0.04] border-white/5 hover:bg-white/[0.06] text-zinc-200"}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${active === i ? "bg-black text-white" : "bg-white/10"}`}>{s.n}</span>
-                      <span className="text-[10px] font-mono opacity-60">{s.code}</span>
+            <h1 className="display mt-6 text-[40px] sm:text-[54px] font-bold leading-[0.92] tracking-[-0.03em]">
+              Every face
+              <br />
+              <span className="italic font-bold text-[#0E7C5A]">leaves a trace.</span>
+              <br />
+              We make it verifiable.
+            </h1>
+
+            <p className="mt-5 max-w-[560px] text-[15px] leading-7 text-[#5A5753]">
+              Drop a portrait. We detect the face, search the open web for where it appears, compare candidates with cosine similarity,
+              canonicalize the match and anchor its <span className="font-semibold text-[#1A1A18]">SHA-256</span> on an Ethereum-compatible chain. Then prove it —{" "}
+              <span className="rounded-full bg-[#1A1A18] px-2 py-0.5 text-xs font-semibold text-white">VERIFIED</span>{" "}
+              <span className="text-[#D6CFC2]">/</span>{" "}
+              <span className="rounded-full bg-white border border-[#E8E0D6] px-2 py-0.5 text-xs font-semibold">TAMPERED</span>.
+            </p>
+
+            <div className="mt-7 flex flex-wrap gap-3">
+              <Link href="/verify" className="inline-flex items-center gap-2 rounded-full bg-[#1A1A18] px-6 py-3 text-sm font-semibold text-white hover:bg-black">
+                Verify in browser
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-white text-[#1A1A18] text-xs">→</span>
+              </Link>
+              <a href="#how" className="inline-flex items-center gap-2 rounded-full border border-[#E8E0D6] bg-white px-6 py-3 text-sm font-semibold hover:bg-[#F3EEE6]">
+                How it works
+              </a>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F3EEE6] px-3 py-2 text-xs font-medium text-[#8A817C]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#0E7C5A]" /> Python 3.12 • Solidity 0.8.20 • InsightFace
+              </span>
+            </div>
+
+            <div className="mt-8 flex flex-wrap gap-2">
+              {[
+                { k: "Face", v: "0.80 conf", s: "512-D ArcFace" },
+                { k: "Match", v: "100.00%", s: "Face Similarity" },
+                { k: "Hash", v: "SHA-256", s: "canonical JSON" },
+                { k: "Chain", v: "Block #2", s: "VERIFIED" },
+              ].map((x) => (
+                <div key={x.k} className="rounded-2xl border border-[#E8E0D6] bg-white px-4 py-3 shadow-sm">
+                  <div className="text-[10px] font-semibold tracking-widest text-[#8A817C]">{x.k.toUpperCase()}</div>
+                  <div className="mono text-sm font-semibold mt-0.5">{x.v}</div>
+                  <div className="text-xs text-[#8A817C]">{x.s}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* right — bento mock */}
+          <div className="relative">
+            <div className="rounded-[28px] border border-[#E8E0D6] bg-white p-3 shadow-[0_20px_60px_rgba(26,26,24,0.08)]">
+              <div className="grid gap-3">
+                {/* input card */}
+                <div className="rounded-[20px] border border-[#E8E0D6] bg-[#FFFBF2] p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold">Input</span>
+                    <span className="mono text-[11px] rounded-full bg-[#1A1A18] px-2 py-0.5 text-white">samples/input.jpg</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-[96px_1fr] gap-3">
+                    <div className="relative h-24 w-24 overflow-hidden rounded-2xl bg-[#E8E0D6] border border-[#E8E0D6]">
+                      <img src="https://raw.githubusercontent.com/opencv/opencv/master/samples/data/lena.jpg" alt="lena" className="h-full w-full object-cover" crossOrigin="anonymous" />
+                      <div className="absolute left-[32%] top-[18%] h-[56%] w-[38%] rounded-[10px] border-2 border-[#0E7C5A] shadow-[0_0_0_3px_rgba(14,124,90,0.18)]" />
+                      <span className="absolute bottom-1 left-1 rounded-full bg-[#0E7C5A] px-1.5 py-0.5 text-[9px] font-bold text-white">face 0.80</span>
                     </div>
-                    <div className="text-xs font-semibold mt-2">{s.t}</div>
-                    <div className={`text-[11px] mt-1 leading-4 ${active === i ? "text-zinc-700" : "text-zinc-500"}`}>{s.d}</div>
-                  </button>
-                ))}
+                    <div className="space-y-2 text-xs leading-5">
+                      <div className="flex gap-2"><span className="text-[#8A817C]">bbox</span><span className="mono font-medium">208,178 → 352,390</span></div>
+                      <div className="flex gap-2"><span className="text-[#8A817C]">emb</span><span className="mono font-medium">512-D · L2 1.000</span></div>
+                      <div className="inline-flex rounded-full bg-[#0E7C5A]/10 px-2 py-1 text-[11px] font-semibold text-[#0E7C5A]">● Live detection</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* arrow */}
+                <div className="flex justify-center -my-1"><span className="grid h-7 w-7 place-items-center rounded-full border border-[#E8E0D6] bg-white text-xs">↓</span></div>
+
+                {/* search card */}
+                <div className="rounded-[20px] border border-[#E8E0D6] bg-white p-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold">Web discovery — <span className="font-normal text-[#8A817C]">/api/search → Bing murl</span></span>
+                    <span className="text-[11px] rounded-full bg-[#F3EEE6] px-2 py-1 font-medium">6 candidates</span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {[
+                      { s: "100.0%", a: "✓ Match", c: "border-[#0E7C5A] bg-[#0E7C5A]/5" },
+                      { s: "68.2%", a: "below", c: "border-[#E8E0D6] bg-white" },
+                      { s: "41.7%", a: "below", c: "border-[#E8E0D6] bg-white" },
+                    ].map((x, i) => (
+                      <div key={i} className={`rounded-2xl border p-2 text-center ${x.c}`}>
+                        <div className="h-16 rounded-xl bg-[#F3EEE6] overflow-hidden border border-[#E8E0D6]">{i === 0 ? <img src="https://raw.githubusercontent.com/opencv/opencv/master/samples/data/lena.jpg" alt="" className="h-full w-full object-cover" /> : <div className="h-full w-full bg-gradient-to-br from-[#F3EEE6] to-white" />}</div>
+                        <div className="mono text-xs font-bold mt-1.5">{x.s}</div>
+                        <div className="text-[11px] text-[#8A817C]">{x.a}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-center -my-1"><span className="grid h-7 w-7 place-items-center rounded-full border border-[#E8E0D6] bg-white text-xs">↓</span></div>
+
+                {/* chain card */}
+                <div className="rounded-[20px] bg-[#1A1A18] p-4 text-white">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold tracking-wide text-white/70">BLOCKCHAIN</span>
+                    <span className="rounded-full bg-[#0E7C5A] px-2 py-1 text-[11px] font-bold">VERIFIED</span>
+                  </div>
+                  <div className="mt-3 mono text-xs leading-5 text-white/90">
+                    <div>SHA-256 <span className="text-[#7ED8BF]">7a63a215…3676</span></div>
+                    <div className="text-white/60">tx 0xa4e8…809a7e · block #2 · 0x5FbD…aa3</div>
+                    <div className="mt-2 inline-flex rounded-full bg-white px-3 py-1 text-xs font-bold text-[#1A1A18]">✓ BLOCKCHAIN VERIFICATION SUCCESSFUL</div>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div className="flex-1 rounded-2xl bg-[#0f0f12] border border-white/5 p-4 font-mono text-[11px] leading-4 overflow-auto">
-              <div className="text-zinc-500">contracts/VerificationRegistry.sol</div>
-              <pre className="mt-2 text-emerald-300/90 whitespace-pre-wrap">{`// SPDX-License-Identifier: MIT
+            {/* floating badge */}
+            <div className="absolute -bottom-3 -right-2 sm:right-4 rounded-full border border-[#E8E0D6] bg-white px-3 py-1.5 text-xs font-medium shadow-md">
+              Try it now — <Link href="/verify" className="font-semibold underline decoration-[#0E7C5A]/30">/verify</Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* trust strip */}
+      <section className="mx-auto max-w-[1120px] px-4 sm:px-6">
+        <div className="rounded-full border border-[#E8E0D6] bg-white px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <span className="font-semibold tracking-widest text-[#8A817C]">BUILT WITH</span>
+          <span className="mono text-[#5A5753]">InsightFace buffalo_l • OpenCV 4.10 • Web3.py 6 • Solidity 0.8.20 • Next 15.3.9 • eth-tester / Ganache</span>
+          <span className="hidden sm:inline rounded-full bg-[#F3EEE6] px-3 py-1 font-medium">No mocks • No hard-coded posts • Only SHA-256 on-chain</span>
+        </div>
+      </section>
+
+      {/* architecture — new bento from scratch */}
+      <section id="how" className="mx-auto max-w-[1120px] px-4 sm:px-6 pt-10">
+        <div className="flex items-end justify-between gap-4">
+          <div>
+            <h2 className="display text-[30px] font-bold tracking-tight">How it works</h2>
+            <p className="mt-2 max-w-[560px] text-sm leading-6 text-[#5A5753]">Six focused steps. Click to explore — the code preview on the right follows your selection.</p>
+          </div>
+          <Link href="/verify" className="hidden sm:inline-flex rounded-full bg-[#1A1A18] px-5 py-2.5 text-sm font-semibold text-white">Start verification →</Link>
+        </div>
+
+        <div className="mt-6 grid lg:grid-cols-[1.15fr_0.85fr] gap-4">
+          <div className="grid sm:grid-cols-2 gap-3">
+            {STEPS.map((s, i) => (
+              <button
+                key={s.n}
+                onClick={() => setActive(i)}
+                className={`text-left rounded-[20px] border p-4 transition ${active === i ? "bg-[#1A1A18] text-white border-[#1A1A18] shadow-[0_10px_30px_rgba(0,0,0,0.12)]" : "bg-white border-[#E8E0D6] hover:border-[#D6CFC2] hover:shadow-sm"}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`mono text-xs font-bold px-2 py-1 rounded-full ${active === i ? "bg-white text-[#1A1A18]" : "bg-[#F3EEE6] text-[#8A817C]"}`}>{s.n}</span>
+                  <span className={`mono text-[11px] ${active === i ? "text-white/60" : "text-[#8A817C]"}`}>{s.tag}</span>
+                </div>
+                <div className="mt-3 text-sm font-semibold">{s.title}</div>
+                <div className={`mt-1 text-sm leading-5 ${active === i ? "text-white/70" : "text-[#5A5753]"}`}>{s.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          <div className="rounded-[24px] border border-[#E8E0D6] bg-[#1A1A18] p-4 sm:p-5 shadow-[0_20px_60px_rgba(0,0,0,0.18)]">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#FF5F56]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#FFBD2E]" />
+              <span className="h-2.5 w-2.5 rounded-full bg-[#27C93F]" />
+              <span className="ml-2 mono text-white/50">VerificationRegistry.sol</span>
+              <span className="ml-auto hidden sm:inline rounded-full bg-white/10 px-2 py-1 mono text-[11px] text-white/70">{STEPS[active].title}</span>
+            </div>
+            <pre className="mono mt-4 text-[12px] leading-5 whitespace-pre-wrap text-[#7ED8BF]">{`// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 contract VerificationRegistry {
   mapping(bytes32 => uint256) public records;
-  event RecordStored(bytes32 indexed dataHash,
-                     uint256 timestamp,
-                     address indexed sender);
+  event RecordStored(bytes32 indexed h, uint256 ts, address sender);
   function storeRecord(bytes32 h) external {
     require(h != 0, "invalid");
     require(records[h]==0, "already");
     records[h]=block.timestamp;
     emit RecordStored(h, block.timestamp, msg.sender);
   }
-  function verifyRecord(bytes32 h)
-    external view returns (bool, uint256) {
-    uint256 ts=records[h];
-    return (ts!=0, ts);
+  function verifyRecord(bytes32 h) external view returns (bool, uint256) {
+    return (records[h]!=0, records[h]);
   }
 }`}</pre>
-              <div className="mt-4 text-zinc-500">Canonical schema → SHA-256</div>
-              <pre className="mt-2 text-cyan-300/90 whitespace-pre-wrap">{`{
-  "author": "",
-  "caption": "",
-  "image_sha256": "7de7ed5…",
+            <div className="mt-4 rounded-2xl bg-white/[0.06] border border-white/10 p-3">
+              <div className="mono text-[11px] tracking-wide text-white/50">CANONICAL → SHA-256</div>
+              <pre className="mono mt-2 text-[11px] leading-4 whitespace-pre-wrap text-white/90">{`{
+  "image_sha256": "…",
   "image_url": "https://…/lena.jpg",
   "platform": "raw.githubusercontent.com",
   "post_url": "https://…/lena.jpg",
-  "published_at": "",
-  "title": "Image — raw.githubusercontent.com"
+  "title": "Image — raw.githubusercontent…"
 }
-→ json.dumps(sort_keys, separators=(',',':'))
-→ SHA-256 → 0x7a63a215…`}</pre>
+→ sorted keys, separators=(',',':')
+→ SHA-256  0x7a63a215…3676`}</pre>
             </div>
           </div>
         </div>
       </section>
 
-      {/* CLI */}
-      <section id="cli" className="mx-auto max-w-6xl px-5 py-8">
-        <h2 className="text-lg font-bold tracking-tight">Run it — CLI first</h2>
-        <div className="mt-4 grid lg:grid-cols-2 gap-4">
-          <div className="rounded-2xl bg-[#0f0f12] border border-white/5 overflow-hidden">
-            <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
-              <span className="h-2.5 w-2.5 rounded-full bg-red-500/80" /><span className="h-2.5 w-2.5 rounded-full bg-yellow-500/80" /><span className="h-2.5 w-2.5 rounded-full bg-green-500/80" />
-              <span className="ml-2 text-xs font-mono text-zinc-500">identify → verify → tamper</span>
-              <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-emerald-400/15 text-emerald-300 border border-emerald-400/20">real run — Lena</span>
+      {/* cli */}
+      <section id="cli" className="mx-auto max-w-[1120px] px-4 sm:px-6 pt-10 pb-8">
+        <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-4">
+          <div className="rounded-[24px] bg-[#1A1A18] border border-[#2A2A28] overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.18)]">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/10">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#FF5F56]" /><span className="h-2.5 w-2.5 rounded-full bg-[#FFBD2E]" /><span className="h-2.5 w-2.5 rounded-full bg-[#27C93F]" />
+              <span className="ml-2 mono text-xs text-white/50">identify → verify → tamper</span>
+              <span className="ml-auto mono text-[11px] rounded-full bg-[#0E7C5A] px-2 py-1 font-bold text-white">real run — Lena</span>
             </div>
-            <pre className="p-4 text-[11px] leading-4 font-mono overflow-x-auto text-zinc-300 whitespace-pre-wrap">{`$ python main.py identify --image ./samples/input.jpg
+            <pre className="mono p-4 text-[12px] leading-5 whitespace-pre-wrap text-white/90">{`$ python main.py identify --image ./samples/input.jpg
 
 [1/6] Loading input image...   ✓ 89.7 KB
 [2/6] Detecting face...        ✓ 1 face bbox=(208,178,352,390) conf=0.80
@@ -169,57 +272,48 @@ $ python main.py verify --record latest
   CURRENT HASH   0x7a63a215…
   ✓ VERIFIED — BLOCKCHAIN VERIFICATION SUCCESSFUL
 
-$ # tamper canonical.caption → re-verify
 $ python main.py verify --record tampered
   ON-CHAIN 0x7a63a215…  CURRENT 0x102f3ae3…
   ✗ TAMPERED — fingerprint mismatch`}</pre>
           </div>
 
           <div className="space-y-4">
-            <div className="rounded-2xl border border-white/5 bg-white/[0.04] p-4">
-              <div className="text-xs font-semibold">Quick start</div>
-              <pre className="mt-2 p-3 rounded-xl bg-black/50 border border-white/5 text-[11px] font-mono leading-4 overflow-x-auto whitespace-pre-wrap">{`python3.12 -m venv .venv && source .venv/bin/activate
+            <div className="rounded-[24px] border border-[#E8E0D6] bg-white p-5 shadow-sm">
+              <div className="text-sm font-semibold">Quick start — or skip Python entirely</div>
+              <p className="mt-1 text-sm leading-6 text-[#5A5753]">The browser path needs no install. For the audited CLI + Solidity run:</p>
+              <pre className="mono mt-3 rounded-2xl bg-[#1A1A18] p-3 text-[11px] leading-4 whitespace-pre-wrap text-white/90 overflow-x-auto">{`python3.12 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt   # opencv 4.10.0.84
 cp .env.example .env
-
-# persistent chain (optional)
 npx ganache --port 8545 --chain.chainId 31337 \\
   --wallet.mnemonic "test test ..." --logging.quiet &
 python scripts/deploy_contract.py
-
 python main.py identify --image ./samples/input.jpg
 python main.py verify --record latest
 python -m pytest -v`}</pre>
               <div className="mt-3 flex gap-2">
-                <a href="https://github.com/vardhan23v/VeriTrace" target="_blank" className="text-xs bg-white text-black px-3 py-1.5 rounded-full font-medium">GitHub Repo →</a>
-                <a href="https://github.com/vardhan23v/VeriTrace#readme" target="_blank" className="text-xs border border-white/10 px-3 py-1.5 rounded-full">Readme</a>
+                <Link href="/verify" className="rounded-full bg-[#0E7C5A] px-4 py-2 text-sm font-semibold text-white">Verify in browser</Link>
+                <a href="https://github.com/vardhan23v/VeriTrace" target="_blank" rel="noopener noreferrer" className="rounded-full border border-[#E8E0D6] px-4 py-2 text-sm font-medium">GitHub repo</a>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/5 bg-white/[0.04] p-4">
-              <div className="text-xs font-semibold">Why this PoC is real</div>
-              <ul className="mt-2 space-y-1.5 text-xs leading-5 text-zinc-400 list-disc list-inside">
-                <li><span className="text-zinc-200">InsightFace buffalo_l</span> ArcFace — not heuristics</li>
-                <li><span className="text-zinc-200">SerpAPI Google Lens</span> when key present; <span className="text-zinc-200">BingScrape</span> free fallback hits Bing HTML (`murl`)</li>
-                <li>Candidate images are <span className="text-zinc-200">downloaded over HTTPS</span> and face-verified — not a local DB</li>
-                <li>Chain is <span className="text-zinc-200">PyEVM / Ganache</span> — `storeRecord`/`verifyRecord` are real contract calls</li>
-                <li>Only <span className="text-zinc-200">SHA-256(canonical)</span> on-chain — no PII</li>
+            <div className="rounded-[24px] border border-[#E8E0D6] bg-[#FFFBF2] p-5">
+              <div className="text-sm font-semibold">Why this PoC is real</div>
+              <ul className="mt-3 space-y-2 text-sm leading-6 text-[#5A5753] list-disc list-inside">
+                <li><span className="font-semibold text-[#1A1A18]">InsightFace buffalo_l</span> ArcFace — not heuristics</li>
+                <li><span className="font-semibold text-[#1A1A18]">BingScrape</span> hits Bing HTML (<span className="mono text-xs">murl</span>) — or SerpAPI Lens with key</li>
+                <li>Candidates are <span className="font-semibold text-[#1A1A18]">downloaded over HTTPS</span> and face-verified — not a local DB</li>
+                <li>Chain is <span className="font-semibold text-[#1A1A18]">PyEVM / Ganache</span> — real <span className="mono text-xs">storeRecord</span>/<span className="mono text-xs">verifyRecord</span></li>
+                <li>Only <span className="font-semibold text-[#1A1A18]">SHA-256(canonical)</span> on-chain — no PII</li>
               </ul>
-            </div>
-
-            <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/5 p-4">
-              <div className="text-xs font-semibold text-emerald-300">For evaluators</div>
-              <p className="text-xs leading-5 text-zinc-400 mt-1">Default works with no keys (bing_scrape). For true reverse-image set <span className="font-mono text-zinc-200">SERPAPI_API_KEY</span> from serpapi.com (100 free). Threshold is configurable — CLI never claims absolute identity, only “Face Similarity Match”.</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* footer */}
-      <footer className="mx-auto max-w-6xl px-5 py-10 border-t border-white/5 mt-4">
-        <div className="flex flex-col sm:flex-row justify-between gap-3 text-xs text-zinc-500">
-          <span>© VeriTrace — HH Goa 2026 Task 3 • MIT • Python 3.12 • Solidity 0.8.20 · <a href="/about" className="underline decoration-white/15 hover:text-zinc-300">About</a> · <a href="/verify" className="underline decoration-emerald-400/20 text-emerald-300 hover:text-emerald-200">Verify in browser</a></span>
-          <span className="font-mono">samples/input.jpg — OpenCV Lena (permissive) • not a private individual</span>
+      <footer className="mx-auto max-w-[1120px] px-4 sm:px-6 py-8 border-t border-[#E8E0D6] mt-2">
+        <div className="flex flex-col sm:flex-row justify-between gap-3 text-xs text-[#8A817C]">
+          <span>© VeriTrace — HH Goa 2026 Task 3 • MIT • <Link href="/about" className="underline decoration-[#E8E0D6] hover:text-[#1A1A18]">About</Link> • <Link href="/verify" className="font-semibold text-[#0E7C5A] hover:text-[#0A5E45]">Verify in browser →</Link></span>
+          <span className="mono">samples/input.jpg — OpenCV Lena (permissive) • not a private individual</span>
         </div>
       </footer>
     </div>
