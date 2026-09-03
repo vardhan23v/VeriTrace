@@ -1,6 +1,16 @@
 # VeriTrace — Face Identification → Web Discovery → Blockchain Verification
 
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Solidity 0.8.20](https://img.shields.io/badge/solidity-0.8.20-363636.svg)](https://soliditylang.org/)
+[![Tests](https://img.shields.io/badge/tests-22%20passed-brightgreen.svg)](https://github.com/vardhan23v/VeriTrace/actions)
+[![Vercel](https://img.shields.io/badge/vercel-deployed-black.svg?logo=vercel)](https://veritrace-dusky.vercel.app)
+[![Live Demo](https://img.shields.io/badge/demo-live-success.svg?logo=vercel)](https://veritrace-dusky.vercel.app)
+[![GitHub](https://img.shields.io/badge/github-vardhan23v%2FVeriTrace-181717.svg?logo=github)](https://github.com/vardhan23v/VeriTrace)
+[![License MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 > **HH Goa 2026 — Shortlisting Task 3 Proof-of-Concept**
+
+> **🌐 Live Showcase:** https://veritrace-dusky.vercel.app &nbsp;|&nbsp; **GitHub:** https://github.com/vardhan23v/VeriTrace
 
 A production-quality CLI that takes a face image → detects & embeds the face → performs **genuine external web/visual search** → downloads candidates → re-detects & compares faces → canonicalises the best match → SHA-256 fingerprints it → stores the fingerprint on an **Ethereum-compatible blockchain** → and verifies it (VERIFIED / TAMPERED).
 
