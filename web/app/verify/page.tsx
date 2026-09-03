@@ -320,31 +320,52 @@ export default function VerifyPage() {
 
             {(hash || canonical) && (
               <div className="rounded-[24px] border border-[#E8E0D6] bg-[#1A1A18] p-4 shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
-                <div className="mono text-[11px] tracking-wide text-white/50">CANONICAL JSON → SHA-256</div>
-                <pre className="mono mt-2 whitespace-pre-wrap text-xs leading-4 text-white/90">{canonical ? JSON.stringify(canonical, null, 2) : ""}</pre>
+                <div className="flex items-center gap-2">
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-[#0E7C5A] text-white text-xs">⬡</span>
+                  <span className="text-sm font-semibold text-white">Proof ready</span>
+                  <span className="ml-auto rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white/70">Fingerprint anchored</span>
+                </div>
+
                 {hash && (
-                  <>
-                    <div className="mono mt-3 text-[11px] tracking-wide text-white/50">SHA-256</div>
-                    <div className="mono mt-1 break-all text-sm font-medium text-[#7ED8BF]">0x{hash}</div>
-                    <div className="mono text-xs text-white/40">{shortHash(hash)} · image {imageSha256 ? shortHash(imageSha256) : "—"}</div>
-                  </>
+                  <div className="mt-4 rounded-2xl bg-white p-4">
+                    <div className="text-xs font-semibold tracking-widest text-[#8A817C]">FINGERPRINT</div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="inline-flex rounded-full bg-[#1A1A18] px-3 py-1.5 text-sm font-bold text-white tracking-wide">{shortHash(hash)}</span>
+                      <span className="text-xs text-[#8A817C]">SHA-256 of the verified match</span>
+                    </div>
+                    <div className="mt-2 h-1.5 w-full rounded-full bg-[#F3EEE6] overflow-hidden">
+                      <div className="h-full w-[92%] rounded-full bg-[#0E7C5A]" />
+                    </div>
+                  </div>
                 )}
+
                 {tx && (
-                  <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] p-3">
-                    <div className="mono text-xs text-white/60">VerificationRegistry · localStorage chain</div>
-                    <div className="mono mt-1 text-xs text-white">tx <span className="text-white font-medium">{tx.hash}</span> · #{tx.block}</div>
-                    <div className="mono text-xs text-white/50">contract {tx.contract}</div>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-3 text-center">
+                      <div className="text-[11px] font-semibold tracking-widest text-white/50">TRANSACTION</div>
+                      <div className="mt-1 text-xs font-semibold text-white truncate">{tx.hash.slice(0, 12)}…</div>
+                    </div>
+                    <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-3 text-center">
+                      <div className="text-[11px] font-semibold tracking-widest text-white/50">BLOCK</div>
+                      <div className="mt-1 text-xs font-semibold text-white">#{tx.block}</div>
+                    </div>
+                    <div className="rounded-2xl bg-white/[0.06] border border-white/10 p-3 text-center">
+                      <div className="text-[11px] font-semibold tracking-widest text-white/50">STATUS</div>
+                      <div className="mt-1 text-xs font-bold text-[#7ED8BF]">Anchored</div>
+                    </div>
                   </div>
                 )}
+
                 {verifyState !== "idle" && (
-                  <div className={`mt-3 rounded-full px-4 py-2 text-sm font-bold text-center ${verifyState === "verified" ? "bg-[#0E7C5A] text-white" : "bg-[#E85D04] text-white"}`}>
-                    {verifyState === "verified" ? "✓ VERIFIED — BLOCKCHAIN VERIFICATION SUCCESSFUL" : "✗ TAMPERED — fingerprint mismatch"}
+                  <div className={`mt-3 rounded-full px-4 py-3 text-sm font-bold text-center ${verifyState === "verified" ? "bg-[#0E7C5A] text-white" : "bg-[#E85D04] text-white"}`}>
+                    {verifyState === "verified" ? "✓ VERIFIED — fingerprint matches on-chain record" : "✗ TAMPERED — fingerprint does not match"}
                   </div>
                 )}
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button onClick={() => reverify(false)} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#1A1A18]">Re-verify</button>
-                  <input value={tamperCaption} onChange={(e) => setTamperCaption(e.target.value)} placeholder="edit caption to tamper…" className="mono rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-white placeholder:text-white/40 w-52" />
-                  <button onClick={() => reverify(true)} className="rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">Tamper → expect TAMPERED</button>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button onClick={() => reverify(false)} className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#1A1A18]">Re-check</button>
+                  <input value={tamperCaption} onChange={(e) => setTamperCaption(e.target.value)} placeholder="add a note to simulate tamper…" className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm text-white placeholder:text-white/40 w-52" />
+                  <button onClick={() => reverify(true)} className="rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/10">Simulate tamper →</button>
                 </div>
               </div>
             )}
